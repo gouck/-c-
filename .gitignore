@@ -1,6 +1,11 @@
 # Generated output files (可由源码重新生成)
 output/
 
+# PyInstaller
+build/
+dist/
+*.spec
+
 # Python cache
 __pycache__/
 *.pyc

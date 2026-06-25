@@ -13,6 +13,53 @@ from io import StringIO
 from pathlib import Path
 
 
+# ==================================================================
+# 路径工具
+# ==================================================================
+
+def _get_base_dir() -> str:
+    """获取应用根目录（exe 或脚本所在目录）。"""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    else:
+        return os.path.dirname(os.path.abspath(__file__))
+
+
+def _get_bundled_dir() -> str:
+    """获取 PyInstaller 打包后的临时数据目录。"""
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS  # type: ignore[attr-defined]
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _ensure_source_files() -> None:
+    """确保 source/ 目录存在并包含必要的源文件。"""
+    base = _get_base_dir()
+    local_source = os.path.join(base, "source")
+    bundled_source = os.path.join(_get_bundled_dir(), "source")
+    if os.path.isdir(local_source) and os.path.isfile(os.path.join(local_source, "tinyReg.txt")):
+        return
+    if os.path.isdir(bundled_source):
+        os.makedirs(local_source, exist_ok=True)
+        for fname in os.listdir(bundled_source):
+            src = os.path.join(bundled_source, fname)
+            dst = os.path.join(local_source, fname)
+            if os.path.isfile(src) and not os.path.exists(dst):
+                shutil.copy2(src, dst)
+
+
+def _get_default_path(filename: str) -> str:
+    """获取源文件的默认路径（优先 source/ 目录）。"""
+    base = _get_base_dir()
+    # 优先用 source/ 下的文件
+    candidate = os.path.join(base, "source", filename)
+    if os.path.isfile(candidate):
+        return os.path.normpath(candidate)
+    # 回退到旧路径
+    legacy = os.path.join(base, "..", "伪代码转c++", filename)
+    return os.path.normpath(legacy)
+
+
 class CompilerGUI:
     """八米编译器主界面。"""
 
@@ -22,6 +69,7 @@ class CompilerGUI:
         self.root.geometry("860x700")
         self.root.minsize(700, 500)
         self._log_buffer: StringIO = StringIO()
+        _ensure_source_files()  # exe 首次运行时释放源文件
         self._build_ui()
         self._refresh_ext_list()
 
@@ -45,12 +93,12 @@ class CompilerGUI:
 
         # spec 文件行
         self._build_file_row(file_frame, "Spec 文件:", 0,
-                             default=r"../伪代码转c++/8mSpec_0821.c",
+                             default=_get_default_path("8mSpec_0821.c"),
                              callback=self._browse_spec)
 
         # reg 文件行
         self._build_file_row(file_frame, "Reg 文件:", 1,
-                             default=r"../伪代码转c++/tinyReg.txt",
+                             default=_get_default_path("tinyReg.txt"),
                              callback=self._browse_reg)
 
         # ── 扩展文件区 ──
@@ -153,7 +201,7 @@ class CompilerGUI:
 
     def _get_source_dir(self) -> str:
         """获取 source/ 目录的绝对路径。"""
-        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "source")
+        return os.path.join(_get_base_dir(), "source")
 
     def _import_ext(self) -> None:
         """导入 .ext 文件到 source/ 目录。"""
