@@ -9,6 +9,7 @@ import os
 import sys
 import shutil
 import threading
+import queue
 from io import StringIO
 from pathlib import Path
 
@@ -108,6 +109,8 @@ class CompilerGUI:
         ext_top = ttk.Frame(ext_frame)
         ext_top.pack(fill=tk.X)
         ttk.Label(ext_top, text="已加载的扩展：").pack(side=tk.LEFT)
+        btn_remove = ttk.Button(ext_top, text="移除选中", command=self._remove_ext)
+        btn_remove.pack(side=tk.RIGHT, padx=(4, 0))
         btn_import = ttk.Button(ext_top, text="导入 .ext...", command=self._import_ext)
         btn_import.pack(side=tk.RIGHT)
 
@@ -131,9 +134,22 @@ class CompilerGUI:
         # ── 按钮区 ──
         btn_frame = ttk.Frame(main)
         btn_frame.pack(fill=tk.X, pady=(0, 8))
+
+        # 目标语言下拉框
+        ttk.Label(btn_frame, text="输出:").pack(side=tk.LEFT, padx=(0, 2))
+        self._target_var = tk.StringVar(value="c")
+        target_combo = ttk.Combobox(
+            btn_frame, textvariable=self._target_var,
+            values=["c", "rtl", "all"],
+            state="readonly", width=6
+        )
+        target_combo.pack(side=tk.LEFT, padx=(0, 10))
+
         self._compile_btn = ttk.Button(btn_frame, text="  编  译  ", command=self._compile)
-        self._compile_btn.pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(btn_frame, text="  清除日志  ", command=self._clear_log).pack(side=tk.LEFT)
+        self._compile_btn.pack(side=tk.LEFT, padx=4)
+
+        ttk.Button(btn_frame, text="  清除日志  ", command=self._clear_log).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="  打开输出  ", command=self._open_output).pack(side=tk.LEFT, padx=4)
 
         # ── 状态标签 ──
         self._status_var = tk.StringVar(value="● 就绪")
@@ -222,6 +238,27 @@ class CompilerGUI:
         self._refresh_ext_list()
         self._log(f"已导入 {copied} 个扩展文件到 {source_dir}")
 
+    def _remove_ext(self) -> None:
+        """移除选中的 .ext 文件。"""
+        sel = self._ext_list.curselection()
+        if not sel:
+            messagebox.showinfo("提示", "请先在列表中选择要移除的扩展文件。")
+            return
+        item_text = self._ext_list.get(sel[0])
+        fname = item_text.split()[1] if len(item_text.split()) > 1 else ""
+        if not fname or not fname.endswith(".ext"):
+            messagebox.showwarning("错误", "无法解析选中的文件名。")
+            return
+        if not messagebox.askyesno("确认移除", f"确定要删除 {fname} 吗？"):
+            return
+        filepath = os.path.join(self._get_source_dir(), fname)
+        try:
+            os.remove(filepath)
+            self._log(f"已移除: {fname}")
+        except OSError as e:
+            messagebox.showerror("错误", f"删除失败: {e}")
+        self._refresh_ext_list()
+
     def _refresh_ext_list(self) -> None:
         """刷新扩展列表显示。"""
         self._ext_list.delete(0, tk.END)
@@ -286,11 +323,19 @@ class CompilerGUI:
     # 编译
     # ==================================================================
 
+    def _open_output(self) -> None:
+        """用系统资源管理器打开输出目录。"""
+        out_dir = self._out_var.get().strip()
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+            os.startfile(os.path.abspath(out_dir))
+
     def _compile(self) -> None:
         """启动编译线程。"""
         spec = self._spec_var.get().strip()
         reg = self._reg_var.get().strip()
         out_dir = self._out_var.get().strip()
+        target = self._target_var.get().strip() or "c"
 
         if not spec or not reg:
             messagebox.showwarning("输入不完整", "请先选择 Spec 文件和 Reg 文件。")
@@ -304,38 +349,77 @@ class CompilerGUI:
         self._status_label.config(foreground="orange")
         self._clear_log()
 
-        thread = threading.Thread(target=self._compile_thread, args=(spec, reg, out_dir), daemon=True)
+        self._result_queue = queue.Queue()
+        thread = threading.Thread(target=self._compile_thread, args=(spec, reg, out_dir, target), daemon=True)
         thread.start()
+        self._poll_thread()
 
-    def _compile_thread(self, spec: str, reg: str, out_dir: str) -> None:
+    def _poll_thread(self) -> None:
+        """轮询编译线程结果。"""
+        try:
+            msg = self._result_queue.get(block=False)
+            if msg[0] == "done":
+                self._compile_done(msg[1])
+            elif msg[0] == "error":
+                self._compile_error(msg[1])
+            elif msg[0] == "log":
+                self._log(msg[1])
+                self.root.after(100, self._poll_thread)
+                return
+        except queue.Empty:
+            self.root.after(100, self._poll_thread)
+            return
+
+    def _compile_thread(self, spec: str, reg: str, out_dir: str, target: str) -> None:
         """后台编译线程。"""
         try:
             from compiler.pipeline import CompilerPipeline
-            pipeline = CompilerPipeline(spec, reg, out_dir, "c", True)
+
+            class QueueStream:
+                def __init__(self, q):
+                    self._q = q
+                    self._buf = ""
+                def write(self, s):
+                    self._buf += s
+                    if "\n" in self._buf:
+                        lines = self._buf.split("\n")
+                        self._buf = lines[-1]
+                        for line in lines[:-1]:
+                            if line.strip():
+                                self._q.put(("log", line.strip()))
+                def flush(self):
+                    if self._buf.strip():
+                        self._q.put(("log", self._buf.strip()))
+                        self._buf = ""
+
+            qs = QueueStream(self._result_queue)
             old_stdout = sys.stdout
-            sys.stdout = self._log_buffer = StringIO()
-            pipeline.run()
-            sys.stdout = old_stdout
-            log_text = self._log_buffer.getvalue()
-            self.root.after(0, self._compile_done, log_text)
+            sys.stdout = qs
+            try:
+                pipeline = CompilerPipeline(spec, reg, out_dir, target, True)
+                pipeline.run()
+            finally:
+                sys.stdout = old_stdout
+                qs.flush()
+            self._result_queue.put(("done", out_dir))
         except Exception as e:
             import traceback
             err_msg = f"{e}\n{traceback.format_exc()}"
-            self.root.after(0, self._compile_error, err_msg)
+            self._result_queue.put(("error", err_msg))
 
-    def _compile_done(self, log_text: str) -> None:
+    def _compile_done(self, out_dir: str) -> None:
         """编译完成回调（主线程）。"""
-        self._log(log_text)
         # 列出生成文件
-        out_dir = self._out_var.get().strip()
         files_info = []
-        for name in ["reg_drv.h", "reg_drv.c", "output.c"]:
-            fpath = os.path.join(out_dir, name)
-            if os.path.isfile(fpath):
+        import glob
+        all_files = [f for f in glob.glob(os.path.join(out_dir, "**", "*"), recursive=True)
+                     if os.path.isfile(f)]
+        if all_files:
+            self._log("─" * 40 + "\n生成文件:")
+            for fpath in sorted(all_files):
+                rel = os.path.relpath(fpath, out_dir)
                 size = os.path.getsize(fpath)
-                files_info.append(f"  {fpath}  ({size} bytes)")
-        if files_info:
-            self._log("✓ 编译完成! 生成文件:\n" + "\n".join(files_info))
+                self._log(f"  {rel}  ({size} bytes)")
         self._status_var.set("✓ 编译完成")
         self._status_label.config(foreground="green")
         self._compile_btn.config(state=tk.NORMAL)

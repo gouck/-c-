@@ -1,5 +1,7 @@
 # Generated output files (可由源码重新生成)
 output/
+v_output/
+c_output/
 
 # PyInstaller
 build/

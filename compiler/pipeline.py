@@ -250,8 +250,10 @@ class CompilerPipeline:
         header = drv_gen.generate_header()
         source = drv_gen.generate_source()
 
-        h_path = os.path.join(self.output_dir, "reg_drv.h")
-        c_path = os.path.join(self.output_dir, "reg_drv.c")
+        c_out = os.path.join(self.output_dir, "c_output")
+        os.makedirs(c_out, exist_ok=True)
+        h_path = os.path.join(c_out, "reg_drv.h")
+        c_path = os.path.join(c_out, "reg_drv.c")
         with open(h_path, "w", encoding="utf-8") as f:
             f.write(header)
         with open(c_path, "w", encoding="utf-8") as f:
@@ -263,8 +265,21 @@ class CompilerPipeline:
         # -- output.c (main logic) --
         codegen = CCodeGenerator(self.translation_unit, self.symtab)
         main_code = codegen.generate()
-        out_path = os.path.join(self.output_dir, "output.c")
+        out_path = os.path.join(c_out, "output.c")
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(main_code)
         if self.verbose:
             print(f"    {out_path} ({len(main_code)} bytes)")
+
+        # -- RTL / Verilog 生成 --
+        if self.target in ("rtl", "all"):
+            from compiler.codegen.rtl_codegen import RTLCodeGenerator
+            rtl_gen = RTLCodeGenerator(self.translation_unit, self.symtab)
+            rtl_files = rtl_gen.generate()
+            for sub_path, content in rtl_files.items():
+                full_path = os.path.join(self.output_dir, sub_path)
+                os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                with open(full_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                if self.verbose:
+                    print(f"    {full_path} ({len(content)} bytes)")

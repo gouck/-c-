@@ -1,0 +1,14 @@
+
+pyinstaller --onefile --windowed --name 八米编译器 --add-data source;source gui.py
+
+pyinstaller --onefile --windowed --name "八米编译器" --add-data "source;source" --hidden-import compiler --hidden-import compiler.lexer --hidden-import compiler.parser --hidden-import compiler.codegen --hidden-import compiler.semantic --hidden-import compiler.utils --hidden-import compiler.extension_loader --hidden-import compiler.pipeline gui.py
+
+python -c "from compiler.pipeline import CompilerPipeline; p = CompilerPipeline('source/8mSpec_0821.c', 'source/tinyReg.txt', './output', 'all', True); p.run()"
+
+
+git add -A
+git status
+git commit -m "v1.5: RTL代码生成器 - 可综合Verilog + 模块端口自动推导"
+git push
+git tag v1.5 -f
+git push --tags
