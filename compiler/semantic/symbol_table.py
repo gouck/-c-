@@ -162,7 +162,7 @@ class SymbolTable:
             parent_table=parent_name,
             bit_width=(field.hi_bit, field.lo_bit),
         )
-        self.symbols[key] = sym  # bypass define() to skip duplicate check
+        self.symbols[key] = sym  #  bypass define() to skip duplicate check
 
     def lookup_field(self, parent_name: str, field_name: str) -> Optional[Symbol]:
         """
@@ -259,7 +259,7 @@ class SymbolTableBuilder:
                 name=mt.name,
                 kind="table",
                 decl=mt,
-                type=None,  # tables don't have a simple type
+                type=None,  #  tables don't have a simple type
             )
             self.global_scope.define(sym)
             # fields
@@ -285,7 +285,7 @@ class SymbolTableBuilder:
             name=sdef.name,
             kind="struct",
             decl=sdef,
-            type=None,  # struct itself doesn't have a "type" — it IS a type
+            type=None,  #  struct itself doesn't have a "type" — it IS a type
         )
         self.global_scope.define(sym)
         for f in sdef.fields:

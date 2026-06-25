@@ -44,7 +44,7 @@ _FIELD_ALIASES: "dict[str, str]" = {
 _TABLE_ALIASES: "dict[str, str]" = {
 }
 
-# Typo auto-corrections for known misspellings in 8mSpec
+# Typo 自动纠正ions for known misspellings in 8mSpec
 _NAME_CORRECTIONS: "dict[str, str]" = {
     "PacketBypte": "PacketByte",
     "DsMacAing": "DsMacAging",
@@ -56,7 +56,7 @@ _NAME_CORRECTIONS: "dict[str, str]" = {
 # ======================================================================
 
 class CCodeGenerator:
-    """Generate compilable C99 code from the 8m AST."""
+    """从8m AST生成可编译的C99代码"""
 
     def __init__(self, ast: TranslationUnit, symbol_table: SymbolTable) -> None:
         self.ast = ast
@@ -109,8 +109,8 @@ class CCodeGenerator:
             for sdef in self.ast.structs:
                 buf.extend(self._gen_struct(sdef))
 
-        # ---- collect all table-read entry variables across ALL functions/processes ----
-        all_global_tables: "dict[str, str]" = {}  # var_name → entry_type
+        # ---- collect all 表读取 entry variables across ALL functions/processes ----
+        all_global_tables: "dict[str, str]" = {}  #  var_name → entry_type
         if self.ast.model is not None:
             for func in self.ast.model.functions:
                 self._collect_table_read_types(func.body, all_global_tables)
@@ -119,7 +119,7 @@ class CCodeGenerator:
         # Also add DsDestPort (special egress variable)
         all_global_tables.setdefault("DsDestPort", "DsPort_entry_t")
 
-        # ---- declare table-read entry variables as GLOBAL (file scope) ----
+        # ---- declare 表读取 entry variables as GLOBAL (file scope) ----
         if all_global_tables:
             buf.append("/* Global table-read entry variables */")
             for vname in sorted(all_global_tables.keys()):
@@ -149,7 +149,7 @@ class CCodeGenerator:
         return "\n".join(buf) + "\n"
 
     # ==================================================================
-    # Indent helper
+    # 缩进辅助
     # ==================================================================
 
     def _indent(self, code: str, level: int = 1) -> str:
@@ -194,13 +194,13 @@ class CCodeGenerator:
         return lines
 
     # ==================================================================
-    # Function generation
+    # 函数生成
     # ==================================================================
 
     def _gen_function(self, func: FunctionDef) -> List[str]:
         lines: List[str] = []
         ret = self._type_to_c(func.return_type) if func.return_type else "void"
-        # parser function takes packet buffer pointer
+        # parser function takes 包缓冲区 pointer
         if func.name == "parser":
             params = "uint8_t *PacketByte"
         else:
@@ -220,7 +220,7 @@ class CCodeGenerator:
             self._collect_table_read_names(func.body, table_read_names)
             self._collect_table_read_types(func.body, table_target_types)
 
-        # Step 3: compute undeclared, excluding params + var-decl + table-read names
+        # Step 3: compute undeclared, excluding params + 变量声明 + 表读取 names
         declared_in_body: set[str] = set()
         for p in func.params:
             declared_in_body.add(p.name)
@@ -247,9 +247,9 @@ class CCodeGenerator:
         for vname in sorted(all_var_decl_names):
             lines.append(self._indent(f"uint32_t {vname}; /* var-decl */"))
 
-        # Step 4b: table-read entry variables are now GLOBAL — skip local declaration
+        # Step 4b: 表读取 entry variables are now GLOBAL — skip local declaration
 
-        # Step 5: declare auto-declared variables
+        # Step 5: declare 自动声明 variables
         for vname in sorted(undeclared):
             lines.append(self._indent(f"uint32_t {vname}; /* auto-declared */"))
 
@@ -277,7 +277,7 @@ class CCodeGenerator:
         lines.append(f"void {proc.name}_tick(void) {{")
         self._indent_level += 1
         self._in_process = True
-        self._process_vars = {}  # reset per-process variable registry
+        self._process_vars = {}  #  reset per-process variable registry
 
         # collect static variables
         static_vars = self._collect_static_vars(proc.body)
@@ -286,7 +286,7 @@ class CCodeGenerator:
         all_pvar_names: set[str] = set()
         if proc.body is not None:
             self._collect_all_var_names(proc.body, all_pvar_names)
-        all_pvar_names -= set(static_vars.keys())  # exclude already-static
+        all_pvar_names -= set(static_vars.keys())  #  exclude already-static
 
         # collect & declare undeclared variables (as static in process)
         undeclared: set[str] = set()
@@ -304,7 +304,7 @@ class CCodeGenerator:
             lines.append(self._indent(f"static uint32_t {vname}; /* var-decl */"))
         self._process_vars.update({n: "uint32_t" for n in all_pvar_names})
 
-        # table-read entry variables are now GLOBAL — skip local declaration
+        # 表读取 entry variables are now GLOBAL — skip local declaration
 
         # detect nested while loops for FSM
         has_nested_while = self._has_nested_while(proc.body)
@@ -495,7 +495,7 @@ class CCodeGenerator:
                 declared.add(n)
         # filter out multi-word identifiers (natural-language residue from hw primitives)
         names = {n for n in names if " " not in n}
-        # auto-correct common typo: PacketBypte → PacketByte, DsMacAing → DsMacAging
+        # 自动纠正 common typo: PacketBypte → PacketByte, DsMacAing → DsMacAging
         if "PacketBypte" in names:
             names.discard("PacketBypte")
             names.add("PacketByte")
@@ -727,7 +727,7 @@ class CCodeGenerator:
             return f"{op}{operand}" if opt_stmt.prefix else f"{operand}{op}"
         if isinstance(opt_stmt, ExprStmt):
             return self._gen_expr(opt_stmt.expr)
-        # fallback: strip trailing semicolon
+        # 回退方案: strip trailing semicolon
         s = self._gen_statement(opt_stmt)
         return s.rstrip(";")
 
@@ -765,7 +765,7 @@ class CCodeGenerator:
                     cases = [f"case {v}:" for v in range(s_int, e_int + 1)]
                 label = " ".join(cases)
             else:
-                label = f"case {s_val} ... {e_val}:"  # GCC extension fallback
+                label = f"case {s_val} ... {e_val}:"  #  GCC extension 回退方案
         else:
             label = f"case {self._gen_expr(stmt.value)}:"
         body = self._gen_statement(stmt.stmt) if stmt.stmt else ";"
@@ -800,11 +800,11 @@ class CCodeGenerator:
     def _gen_compound_assign(self, stmt: CompoundAssignStmt) -> str:
         lhs = self._gen_expr(stmt.lhs)
         rhs = self._gen_expr(stmt.rhs)
-        op = stmt.op  # "+=", "-=", "&=", "|="
+        op = stmt.op  #  "+=", "-=", "&=", "|="
         return f"{lhs} {op} {rhs};"
 
     def _gen_inc_dec(self, stmt: IncDecStmt) -> str:
-        op = stmt.op  # "++" or "--"
+        op = stmt.op  #  "++" or "--"
         # If operand is a BitSliceExpr, generate read-modify-write
         if isinstance(stmt.operand, BitSliceExpr):
             base = self._gen_expr(stmt.operand.base)
@@ -825,7 +825,7 @@ class CCodeGenerator:
         return f"({operand}){op};"
 
     # ------------------------------------------------------------------
-    # Variable declaration
+    # 变量声明
     # ------------------------------------------------------------------
 
     def _gen_var_decl(self, stmt: VarDeclStmt) -> str:
@@ -891,7 +891,7 @@ class CCodeGenerator:
         )
 
     # ------------------------------------------------------------------
-    # Hardware primitives
+    # 硬件原语
     # ------------------------------------------------------------------
 
     def _gen_replace(self, stmt: ReplaceStmt) -> str:
@@ -960,7 +960,7 @@ class CCodeGenerator:
         return "return;"
 
     # ==================================================================
-    # Expression generation
+    # 表达式生成
     # ==================================================================
 
     def _gen_expr(self, expr: Expr) -> str:
@@ -1023,7 +1023,7 @@ class CCodeGenerator:
             if isinstance(expr.left, CompositeFieldExpr) and isinstance(expr.right, ConcatExpr):
                 return self._gen_composite_compare(expr.left, expr.right)
 
-        if op == "?:":  # outer ternary
+        if op == "?:":  #  outer ternary
             inner = expr.right
             if isinstance(inner, BinaryOpExpr) and inner.op == ":":
                 return f"({left} ? {self._gen_expr(inner.left)} : {self._gen_expr(inner.right)})"
@@ -1038,7 +1038,7 @@ class CCodeGenerator:
         op = expr.op
         operand = self._gen_expr(expr.operand)
         if op.startswith("post"):
-            actual_op = op[4:]  # "++" or "--"
+            actual_op = op[4:]  #  "++" or "--"
             # If operand is a BitSliceExpr, generate read-modify-write
             if isinstance(expr.operand, BitSliceExpr):
                 base = self._gen_expr(expr.operand.base)
@@ -1068,7 +1068,7 @@ class CCodeGenerator:
         return f"({op}{operand})"
 
     # ------------------------------------------------------------------
-    # Field access / bitslice / bitindex
+    # 字段访问 / 位切片 / 位索引
     # ------------------------------------------------------------------
 
     def _gen_field_access(self, expr: FieldAccessExpr) -> str:
@@ -1102,7 +1102,7 @@ class CCodeGenerator:
         return f"((({base}) >> ({idx})) & 1)"
 
     # ------------------------------------------------------------------
-    # Field index (aging{idx})
+    # 字段索引（aging{idx}）
     # ------------------------------------------------------------------
 
     def _gen_field_index(self, expr: FieldIndexExpr) -> str:
@@ -1123,7 +1123,7 @@ class CCodeGenerator:
 
     def _gen_field_index_assign(self, stmt: AssignStmt) -> str:
         """aging{idx} = val → switch(idx & 3) { case 0: aging0 = val; break; ... }"""
-        fiexpr = stmt.lhs  # FieldIndexExpr
+        fiexpr = stmt.lhs  #  FieldIndexExpr
         if isinstance(fiexpr.base, FieldAccessExpr):
             parent = self._gen_expr(fiexpr.base.base)
             field = fiexpr.base.field
@@ -1145,7 +1145,7 @@ class CCodeGenerator:
         return "/* FieldIndex assign */;"
 
     # ------------------------------------------------------------------
-    # Composite field (.{fid, macAddr})
+    # 复合字段（.{fid, macAddr}）
     # ------------------------------------------------------------------
 
     def _gen_composite_field(self, expr: CompositeFieldExpr) -> str:
@@ -1199,7 +1199,7 @@ class CCodeGenerator:
         return result
 
     # ------------------------------------------------------------------
-    # Function call / MaxMin
+    # 函数调用 / MaxMin
     # ------------------------------------------------------------------
 
     def _gen_func_call(self, expr: FunctionCallExpr) -> str:

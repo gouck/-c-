@@ -227,7 +227,7 @@ class TypeChecker:
                 self._check_statement(cs.stmt)
 
     # ------------------------------------------------------------------
-    # Variable declaration
+    # 变量声明
     # ------------------------------------------------------------------
 
     def _check_var_decl(self, stmt: VarDeclStmt) -> None:
@@ -427,7 +427,7 @@ class TypeChecker:
                 self.infer_type(a)
             sym = self._lookup(expr.name)
             if sym is not None and sym.kind == "function":
-                return sym.type  # return type
+                return sym.type  #  return type
             # built-in / unknown → use arg widths
             max_w = 0
             for a in expr.args:

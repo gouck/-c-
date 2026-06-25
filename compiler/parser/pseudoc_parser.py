@@ -88,7 +88,7 @@ _PRECEDENCE: Dict[TokenType, int] = {
 # Tokens that can appear as prefix unary operators
 _UNARY_PREFIX: Dict[TokenType, str] = {
     TokenType.LOGICAL_NOT: "!",
-    TokenType.RANGE: "~",          # also used as bitwise-not
+    TokenType.RANGE: "~",          #  also used as bitwise-not
     TokenType.MINUS: "-",
     TokenType.PLUS: "+",
 }
@@ -118,7 +118,7 @@ class PseudoCParser:
     def __init__(self, tokens: List[Token]) -> None:
         self.tokens: List[Token] = tokens
         self.pos: int = 0
-        self._in_switch: bool = False  # context flag for case labels
+        self._in_switch: bool = False  #  context flag for case labels
 
     # ==================================================================
     # Token helpers
@@ -296,7 +296,7 @@ class PseudoCParser:
         tt = self._peek_type()
         if tt == TokenType.UINT_TYPE:
             tok = self._advance()
-            width = int(tok.value[4:])  # "uint8" → 8
+            width = int(tok.value[4:])  #  "uint8" → 8
             return BitVectorType(width=width)
         elif tt == TokenType.BOOL:
             self._advance()
@@ -474,7 +474,7 @@ class PseudoCParser:
                    TokenType.UPDATE):
             return self._parse_hw_primitive()
 
-        # -- variable declaration / assignment / table-read / expression --
+        # -- variable declaration / assignment / 表读取 / expression --
         if tt == TokenType.IDENTIFIER:
             return self._parse_ident_statement()
 
@@ -509,11 +509,11 @@ class PseudoCParser:
         """
         saved_pos = self.pos
 
-        # -- Try var_decl pattern: IDENT [ expr : expr ] = expr ; --
+        # -- 尝试变量声明模式: IDENT [ expr : expr ] = expr ; --
         if (self._check(TokenType.IDENTIFIER) and
                 self._peek_type_at(1) == TokenType.LBRACKET):
-            id_tok = self._advance()  # name
-            self._advance()           # [
+            id_tok = self._advance()  #  name
+            self._advance()           #  [
             # check if next-next is COLON (bit-slice decl [hi:lo]) vs expr
             self.pos = saved_pos
             # we need a deeper check; just try to parse and rewind on failure
@@ -522,10 +522,10 @@ class PseudoCParser:
             except ParseError:
                 self.pos = saved_pos
 
-        # -- Parse LHS expression --
+        # -- 解析左值表达式 --
         lhs = self.parse_expression()
 
-        # -- After LHS, check for table-read pattern: = IDENT Table[expr] --
+        # -- 之后检查表读取模式: = IDENT Table[expr] --
         if (isinstance(lhs, IdentifierExpr) and
                 self._check(TokenType.ASSIGN) and
                 self._peek_type_at(1) == TokenType.IDENTIFIER):
@@ -549,13 +549,13 @@ class PseudoCParser:
                 self._expect(TokenType.SEMICOLON)
                 return CompoundAssignStmt(op=op_str, lhs=lhs, rhs=rhs)
 
-        # -- Postfix inc/dec --
+        # -- 后缀自增/自减 --
         if self._check(TokenType.INC) or self._check(TokenType.DEC):
             op_tok = self._advance()
             self._expect(TokenType.SEMICOLON)
             return IncDecStmt(op=op_tok.value, operand=lhs, prefix=False)
 
-        # -- Expression statement --
+        # -- 表达式语句 --
         self._expect(TokenType.SEMICOLON)
         return ExprStmt(expr=lhs)
 
@@ -574,7 +574,7 @@ class PseudoCParser:
         return TokenType.EOF
 
     # ==================================================================
-    # Variable declaration
+    # 变量声明
     # ==================================================================
 
     def _parse_var_decl(self) -> VarDeclStmt:
@@ -640,7 +640,7 @@ class PseudoCParser:
     def _parse_if(self, is_keyword: bool = False) -> IfStmt:
         """if (cond) stmt [else stmt]   or   is(cond) stmt"""
         if is_keyword:
-            self._advance()  # consume "is"
+            self._advance()  #  consume "is"
         else:
             self._expect(TokenType.IF)
         self._expect(TokenType.LPAREN)
@@ -742,7 +742,7 @@ class PseudoCParser:
         value: Expr = self.parse_expression()
         # range case: value ~ value
         if self._check(TokenType.RANGE):
-            self._advance()  # ~
+            self._advance()  #  ~
             end_val = self.parse_expression()
             value = RangeExpr(start=value, end=end_val)
         self._expect(TokenType.COLON)
@@ -750,7 +750,7 @@ class PseudoCParser:
         return CaseStmt(value=value, stmt=stmt)
 
     # ==================================================================
-    # Hardware primitives
+    # 硬件原语
     # ==================================================================
 
     def _parse_hw_primitive(self) -> Stmt:
@@ -791,7 +791,7 @@ class PseudoCParser:
         from_byte: Expr = IntLiteral(value=0)
         base_target: Expr = target_expr
         if isinstance(target_expr, BitIndexExpr):
-            from_byte = target_expr.index  # index is now Expr, use directly
+            from_byte = target_expr.index  #  index is now Expr, use directly
             base_target = target_expr.base
 
         to_byte: Expr = IntLiteral(value=0)
@@ -821,7 +821,7 @@ class PseudoCParser:
         position: Expr = IntLiteral(value=0)
         base_target: Expr = target_expr
         if isinstance(target_expr, BitIndexExpr):
-            position = target_expr.index  # index is now Expr
+            position = target_expr.index  #  index is now Expr
             base_target = target_expr.base
         self._expect(TokenType.SEMICOLON)
         return InsertStmt(value=value, target=base_target, position=position)
@@ -870,7 +870,7 @@ class PseudoCParser:
         return EnqueueStmt(expr=IdentifierExpr(name=target_name))
 
     # ==================================================================
-    # Expression parsing (precedence climbing)
+    # Expression parsing (优先级攀升)
     # ==================================================================
 
     def parse_expression(self, min_prec: int = 0) -> Expr:
@@ -889,19 +889,19 @@ class PseudoCParser:
 
             tt = self._peek_type()
 
-            # -- check for postfix operators (. , [ , { , ( , ++ , -- ) --
+            # -- 检查后缀运算符 (. , [ , { , ( , ++ , -- ) --
             if tt in (TokenType.DOT, TokenType.LBRACKET, TokenType.LBRACE,
                        TokenType.LPAREN, TokenType.INC, TokenType.DEC):
                 left = self._parse_postfix(left)
                 continue
 
-            # -- check for ternary ? : --
+            # -- 检查三元运算符 ? : --
             if tt == TokenType.QUESTION:
                 prec = _PRECEDENCE.get(tt, 0)
                 if prec < min_prec:
                     break
                 cond = left
-                self._advance()  # consume '?'
+                self._advance()  #  consume '?'
                 true_expr = self.parse_expression(0)
                 self._expect(TokenType.COLON)
                 false_expr = self.parse_expression(prec)
@@ -912,7 +912,7 @@ class PseudoCParser:
                 )
                 continue
 
-            # -- binary operator --
+            # -- 二元运算符 --
             prec = _PRECEDENCE.get(tt, -1)
             if prec < min_prec:
                 break
@@ -930,7 +930,7 @@ class PseudoCParser:
         """Parse a primary (leaf) expression."""
         tt = self._peek_type()
 
-        # -- Max / Min built-in (must check BEFORE general identifier) --
+        # -- Max/Min内置函数（必须在通用标识符之前检查） --
         if tt == TokenType.IDENTIFIER and self._peek().value in ("Max", "Min"):
             func_name = self._advance().value
             self._expect(TokenType.LPAREN)
@@ -947,22 +947,22 @@ class PseudoCParser:
             tok = self._advance()
             return IdentifierExpr(name=tok.value)
 
-        # -- integer literal --
+        # -- 整数字面量 --
         if tt == TokenType.INT_LITERAL:
             tok = self._advance()
             return IntLiteral(value=int(tok.value.replace("_", "")))
 
-        # -- hex literal --
+        # -- 十六进制字面量 --
         if tt == TokenType.HEX_LITERAL:
             tok = self._advance()
             raw = tok.value.replace("_", "")
             if raw.startswith("0x") or raw.startswith("0X"):
                 raw = raw[2:]
             val = int(raw, 16)
-            width = len(raw) * 4  # each hex digit = 4 bits
+            width = len(raw) * 4  #  each hex digit = 4 bits
             return HexLiteral(value=val, width=width)
 
-        # -- binary literal (Verilog-style) --
+        # -- 二进制字面量（Verilog风格） --
         if tt == TokenType.BIN_LITERAL:
             tok = self._advance()
             v = tok.value
@@ -981,14 +981,14 @@ class PseudoCParser:
                 val = int(hex_part, 16)
             return BinLiteral(value=val, width=width)
 
-        # -- parenthesised expression --
+        # -- 括号表达式 --
         if tt == TokenType.LPAREN:
             self._advance()
             expr = self.parse_expression()
             self._expect(TokenType.RPAREN)
             return expr
 
-        # -- concatenation: { expr, ... }  or  { expr, ..., expr } --
+        # -- 拼接: { expr, ... }  or  { expr, ..., expr } --
         if tt == TokenType.LBRACE:
             self._advance()
             parts: List[Expr] = []
@@ -998,7 +998,7 @@ class PseudoCParser:
                     if self._check(TokenType.ELLIPSIS):
                         self._advance()
                         start_expr = parts.pop() if parts else IntLiteral(value=0)
-                        self._match(TokenType.COMMA)  # optional comma after ...
+                        self._match(TokenType.COMMA)  #  optional comma after ...
                         end_expr = self.parse_expression()
                         parts.append(RangeExpr(start=start_expr, end=end_expr))
                         break
@@ -1008,10 +1008,10 @@ class PseudoCParser:
             self._expect(TokenType.RBRACE)
             return ConcatExpr(parts=parts)
 
-        # -- unary prefix --
+        # -- 一元前缀运算符 --
         if tt in _UNARY_PREFIX:
             op_tok = self._advance()
-            operand = self.parse_expression(100)  # high precedence to capture postfix
+            operand = self.parse_expression(100)  #  high precedence to capture postfix
             return UnaryOpExpr(op=op_tok.value, operand=operand)
 
         raise ParseError(f"Unexpected token in expression: {tt.name}", self._peek())
@@ -1076,7 +1076,7 @@ class PseudoCParser:
                 lo_val = self._expr_to_int(second)
                 if hi_val is not None and lo_val is not None:
                     return BitSliceExpr(base=base, hi_bit=hi_val, lo_bit=lo_val)
-                # fallback: keep as generic
+                # 回退方案: keep as generic
                 return BitSliceExpr(base=base, hi_bit=0, lo_bit=0)
             else:
                 self._expect(TokenType.RBRACKET)
@@ -1116,7 +1116,7 @@ class PseudoCParser:
 
     @staticmethod
     def _expr_to_int(e: Expr) -> Optional[int]:
-        """Extract an integer value from a literal expression, or None."""
+        """从字面量表达式中提取整数值，或返回None"""
         if isinstance(e, IntLiteral):
             return e.value
         if isinstance(e, HexLiteral):

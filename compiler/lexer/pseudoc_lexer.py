@@ -1,7 +1,7 @@
 """
 compiler/lexer/pseudoc_lexer.py
-Lexer for the 8m pseudo-C DSL (8mSpec_0821.c).
-Tokenises the source into a list of Token objects.
+8m 伪C DSL（8mSpec_0821.c）词法分析器.
+将源代码分词为一系列记号（Token）对象.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Dict, List, Optional
 # ======================================================================
 
 class TokenType(IntEnum):
-    """All token types for the 8m pseudo-C DSL."""
+    """8m 伪C DSL 的所有记号类型."""
 
     # -- keywords --
     PROCESS   = auto()
@@ -55,46 +55,46 @@ class TokenType(IntEnum):
     BIN_LITERAL = auto()
 
     # -- operators / delimiters --
-    ASSIGN       = auto()  # =
-    EQ           = auto()  # ==
-    NE           = auto()  # !=
-    LOGICAL_AND  = auto()  # &&
-    LOGICAL_OR   = auto()  # ||
-    LOGICAL_NOT  = auto()  # !
-    BITWISE_AND  = auto()  # &
-    BITWISE_OR   = auto()  # |
-    BITWISE_NOT  = auto()  # ~
-    BITWISE_XOR  = auto()  # ^
-    SHIFT_LEFT   = auto()  # <<
-    SHIFT_RIGHT  = auto()  # >>
-    LT           = auto()  # <
-    GT           = auto()  # >
-    LE           = auto()  # <=
-    GE           = auto()  # >=
-    PLUS         = auto()  # +
-    MINUS        = auto()  # -
-    STAR         = auto()  # *
-    SLASH        = auto()  # /
-    MOD          = auto()  # %
-    INC          = auto()  # ++
-    DEC          = auto()  # --
-    ADD_ASSIGN   = auto()  # +=
-    SUB_ASSIGN   = auto()  # -=
-    AND_ASSIGN   = auto()  # &=
-    OR_ASSIGN    = auto()  # |=
-    LBRACE       = auto()  # {
-    RBRACE       = auto()  # }
-    LBRACKET     = auto()  # [
-    RBRACKET     = auto()  # ]
-    LPAREN       = auto()  # (
-    RPAREN       = auto()  # )
-    DOT          = auto()  # .
-    COLON        = auto()  # :
-    SEMICOLON    = auto()  # ;
-    COMMA        = auto()  # ,
-    QUESTION     = auto()  # ?
-    RANGE        = auto()  # ~  (context-sensitive: ~ between numbers)
-    ELLIPSIS     = auto()  # ...
+    ASSIGN       = auto()  #  =
+    EQ           = auto()  #  ==
+    NE           = auto()  #  !=
+    LOGICAL_AND  = auto()  #  &&
+    LOGICAL_OR   = auto()  #  ||
+    LOGICAL_NOT  = auto()  #  !
+    BITWISE_AND  = auto()  #  &
+    BITWISE_OR   = auto()  #  |
+    BITWISE_NOT  = auto()  #  ~
+    BITWISE_XOR  = auto()  #  ^
+    SHIFT_LEFT   = auto()  #  <<
+    SHIFT_RIGHT  = auto()  #  >>
+    LT           = auto()  #  <
+    GT           = auto()  #  >
+    LE           = auto()  #  <=
+    GE           = auto()  #  >=
+    PLUS         = auto()  #  +
+    MINUS        = auto()  #  -
+    STAR         = auto()  #  *
+    SLASH        = auto()  #  /
+    MOD          = auto()  #  %
+    INC          = auto()  #  ++
+    DEC          = auto()  #  --
+    ADD_ASSIGN   = auto()  #  +=
+    SUB_ASSIGN   = auto()  #  -=
+    AND_ASSIGN   = auto()  #  &=
+    OR_ASSIGN    = auto()  #  |=
+    LBRACE       = auto()  #  {
+    RBRACE       = auto()  #  }
+    LBRACKET     = auto()  #  [
+    RBRACKET     = auto()  #  ]
+    LPAREN       = auto()  #  (
+    RPAREN       = auto()  #  )
+    DOT          = auto()  #  .
+    COLON        = auto()  #  :
+    SEMICOLON    = auto()  #  ;
+    COMMA        = auto()  #  ,
+    QUESTION     = auto()  #  ?
+    RANGE        = auto()  #  ~  (context-sensitive: ~ between numbers)
+    ELLIPSIS     = auto()  #  ...
 
     # -- special --
     NEWLINE = auto()
@@ -174,7 +174,7 @@ _ONE_CHAR_OPS: Dict[str, TokenType] = {
     "!": TokenType.LOGICAL_NOT,
     "&": TokenType.BITWISE_AND,
     "|": TokenType.BITWISE_OR,
-    "~": TokenType.RANGE,          # ~ as in 0x11~1F
+    "~": TokenType.RANGE,          #  ~ as in 0x11~1F
     "^": TokenType.BITWISE_XOR,
     "<": TokenType.LT,
     ">": TokenType.GT,
@@ -203,7 +203,7 @@ _ONE_CHAR_OPS: Dict[str, TokenType] = {
 
 class PseudoCLexer:
     """
-    Lexer for the 8m pseudo-C DSL (8mSpec_0821.c).
+    8m 伪C DSL（8mSpec_0821.c）词法分析器.
 
     Usage:
         lexer = PseudoCLexer(source_text)
@@ -265,7 +265,7 @@ class PseudoCLexer:
             if ch == "\n":
                 line = self.line
                 col = self.column
-                self._advance()  # advances past \n, sets line++
+                self._advance()  #  advances past \n, sets line++
                 return self._make_token(TokenType.NEWLINE, "\\n", line, col)
 
             # -- // line comment --
@@ -320,8 +320,8 @@ class PseudoCLexer:
                 digits += self._current()
                 self._advance()
             if self._current() == "'" and self._peek(1) in ("b", "B", "h", "H"):
-                radix_ch = self._peek(1).lower()  # 'b' or 'h'
-                self._advance(2)  # skip 'b / 'h
+                radix_ch = self._peek(1).lower()  #  'b' or 'h'
+                self._advance(2)  #  skip 'b / 'h
                 lit_body = ""
                 if radix_ch == "b":
                     while self.pos < len(self.source) and (
@@ -329,7 +329,7 @@ class PseudoCLexer:
                     ):
                         lit_body += self._current()
                         self._advance()
-                else:  # hex
+                else:  #  hex
                     while self.pos < len(self.source) and (
                         self._current().isalnum() or self._current() == "_"
                     ):
@@ -344,7 +344,7 @@ class PseudoCLexer:
             self.line = saved_line
             self.column = saved_col
 
-        # -- Try 0x / 0X (hex literal) --
+        # -- Try 0x / 0X (十六进制字面量) --
         if ch == "0" and self._peek(1) in ("x", "X"):
             self._advance(2)
             hex_body = ""
@@ -442,7 +442,7 @@ class PseudoCLexer:
         return None
 
     # ------------------------------------------------------------------
-    # Main tokenize
+    # 主解析方法 tokenize
     # ------------------------------------------------------------------
 
     def tokenize(self) -> List[Token]:

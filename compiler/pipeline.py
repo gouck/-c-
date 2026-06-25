@@ -6,8 +6,8 @@ Coordinates the six compilation phases:
     Phase 1 – Lexing (tab_lexer + pseudoc_lexer)
     Phase 2 – Parsing (regmap_parser + pseudo-C parser)
     Phase 3 – Semantic analysis (symbol table + type checking)
-    Phase 4 – IR generation (placeholder)
-    Phase 5 – Optimization (placeholder)
+    Phase 4 – IR generation (占位)
+    Phase 5 – Optimization (占位)
     Phase 6 – Code generation (C)
 """
 
@@ -143,7 +143,7 @@ class CompilerPipeline:
                   f"{len(checker.warnings)} warnings")
 
     # ------------------------------------------------------------------
-    # Phase 4 – IR generation (placeholder)
+    # Phase 4 – IR generation (占位)
     # ------------------------------------------------------------------
 
     def _phase4_ir(self) -> None:
@@ -152,7 +152,7 @@ class CompilerPipeline:
             print("    (placeholder)")
 
     # ------------------------------------------------------------------
-    # Phase 5 – Optimization (placeholder)
+    # Phase 5 – Optimization (占位)
     # ------------------------------------------------------------------
 
     def _phase5_optimize(self) -> None:

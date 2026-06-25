@@ -56,7 +56,7 @@ class IdentifierExpr:
 
 @dataclass
 class IntLiteral:
-    """Decimal integer literal."""
+    """Decimal 整数字面量."""
     value: int
 
 
@@ -127,7 +127,7 @@ class CompositeFieldExpr:
 
 @dataclass
 class ConcatExpr:
-    """Bit concatenation expression."""
+    """Bit 拼接 expression."""
     parts: List["Expr"] = field(default_factory=list)
 
 
@@ -141,7 +141,7 @@ class FunctionCallExpr:
 @dataclass
 class MaxMinExpr:
     """max() / min() built-in expression."""
-    func: str  # "max" or "min"
+    func: str  #  "max" or "min"
     args: List["Expr"] = field(default_factory=list)
 
 
@@ -210,7 +210,7 @@ class SwitchStmt:
 @dataclass
 class CaseStmt:
     """case value: stmt  /  default: stmt."""
-    value: Optional[Expr] = None  # None means default
+    value: Optional[Expr] = None  #  None means default
     stmt: Optional["Stmt"] = None
 
 
@@ -232,7 +232,7 @@ class CompoundAssignStmt:
 @dataclass
 class IncDecStmt:
     """Increment / decrement: ++var, --var, var++, var--."""
-    op: str      # "++" or "--"
+    op: str      #  "++" or "--"
     operand: Expr
     prefix: bool = True
 
@@ -240,9 +240,9 @@ class IncDecStmt:
 @dataclass
 class TableReadStmt:
     """Table read statement (e.g. DsMac = DsMac Table[idx])."""
-    table_name: str       # 表名 (如 "DsMac")
-    index: Expr           # 索引表达式 (如 giHashIdx)
-    target_var: str       # 赋值目标变量名，伪C语法左侧的变量名
+    table_name: str       #  表名 (如 "DsMac")
+    index: Expr           #  索引表达式 (如 giHashIdx)
+    target_var: str       #  赋值目标变量名，伪C语法左侧的变量名
 
 
 @dataclass
@@ -261,7 +261,7 @@ class ExprStmt:
 
 @dataclass
 class VarDeclStmt:
-    """Variable declaration statement."""
+    """变量声明 statement."""
     name: str
     var_type: Optional[Type] = None
     init: Optional[Expr] = None
@@ -282,26 +282,26 @@ class EnqueueStmt:
 @dataclass
 class ReplaceStmt:
     """Replace packet bytes: Replace X[from_byte] to X[to_byte] using source."""
-    target: Expr           # 目标数组 (如 IdentifierExpr("PacketByte"))
-    from_byte: Expr        # 起始字节位置
-    to_byte: Expr          # 结束字节位置
-    source: Expr           # 替换用的值
+    target: Expr           #  目标数组 (如 IdentifierExpr("PacketByte"))
+    from_byte: Expr        #  起始字节位置
+    to_byte: Expr          #  结束字节位置
+    source: Expr           #  替换用的值
 
 
 @dataclass
 class InsertStmt:
     """Insert bytes into packet: Insert value after X[pos]."""
-    value: Expr            # 要插入的值
-    target: Expr           # 目标数组
-    position: Expr         # 在哪个字节后插入
+    value: Expr            #  要插入的值
+    target: Expr           #  目标数组
+    position: Expr         #  在哪个字节后插入
 
 
 @dataclass
 class RemoveStmt:
     """Remove packet bytes: remove X[from_byte] ... X[to_byte]."""
-    target: Expr           # 目标数组
-    from_byte: Expr        # 起始字节
-    to_byte: Expr          # 结束字节
+    target: Expr           #  目标数组
+    from_byte: Expr        #  起始字节
+    to_byte: Expr          #  结束字节
 
 
 @dataclass
@@ -341,17 +341,17 @@ class FieldDecl:
     name: str
     field_type: Optional[Type] = None
     width: Optional[int] = None
-    offset: int = 0                       # Word 内偏移 (tinyReg.txt Offset 列)
-    hi_bit: int = 0                       # 高位
-    lo_bit: int = 0                       # 低位
-    description: str = ""                 # 字段描述
-    read_trigger: bool = False            # (MemReg) 读触发
-    write_trigger: bool = False           # (MemReg) 写触发
-    read_only: bool = False               # (Register) 只读
-    read_indicate: bool = False           # (Register) 读指示
-    write_indicate: bool = False          # (Register) 写指示
-    write_one_indicate: bool = False      # (Register) 写1指示
-    default_value: Optional[str] = None   # (Register) 默认值，如 "4'b0"
+    offset: int = 0                       #  Word 内偏移 (tinyReg.txt Offset 列)
+    hi_bit: int = 0                       #  高位
+    lo_bit: int = 0                       #  低位
+    description: str = ""                 #  字段描述
+    read_trigger: bool = False            #  (MemReg) 读触发
+    write_trigger: bool = False           #  (MemReg) 写触发
+    read_only: bool = False               #  (Register) 只读
+    read_indicate: bool = False           #  (Register) 读指示
+    write_indicate: bool = False          #  (Register) 写指示
+    write_one_indicate: bool = False      #  (Register) 写1指示
+    default_value: Optional[str] = None   #  (Register) 默认值，如 "4'b0"
 
 
 @dataclass
@@ -374,7 +374,7 @@ class ParamDecl:
     """Function / process parameter declaration."""
     name: str
     param_type: Optional[Type] = None
-    direction: str = "in"  # "in", "out", "inout"
+    direction: str = "in"  #  "in", "out", "inout"
 
 
 @dataclass

@@ -69,7 +69,7 @@ def _choose_uint_type(total_bits: int) -> str:
 
 def _verilog_default_to_c(dv: str) -> str:
     """
-    Convert a Verilog-style default value to a valid C integer literal.
+    Convert a Verilog-style default value to a valid C 整数字面量.
 
     Supports:
         N'bXXXX  →  integer or  0xHHH...  (binary parsed)
@@ -85,10 +85,10 @@ def _verilog_default_to_c(dv: str) -> str:
         _, _, hex_part = dv.lower().partition("'h")
         hex_part = hex_part.replace("_", "")
         val = int(hex_part, 16)
-        # Use hex literal for readability if > 9
+        # Use 十六进制字面量 for readability if > 9
         if val <= 9:
             return str(val)
-        return hex(val)  # "0x..."
+        return hex(val)  #  "0x..."
     # -- Verilog binary: N'bXXXX --
     if "'b" in dv.lower():
         _, _, bin_part = dv.lower().partition("'b")
@@ -96,8 +96,8 @@ def _verilog_default_to_c(dv: str) -> str:
         val = int(bin_part, 2)
         if val <= 9:
             return str(val)
-        return hex(val)  # "0x..."
-    # -- fallback: return as-is with a warning comment --
+        return hex(val)  #  "0x..."
+    # -- 回退方案: return as-is with a warning comment --
     return dv
 
 
