@@ -62,6 +62,11 @@ class CompilerPipeline:
         """Execute all compilation phases in order."""
         phases = [
             ("Phase 1: Lexing", self._phase1_lex),
+            # ╔══════════════════════════════════════════════════════════╗
+            # ║  扩展加载阶段 — 扫描 source/ 下所有 .ext 文件              ║
+            # ║  加载后注入 lexer 关键字表, 注册到 pipeline               ║
+            # ╚══════════════════════════════════════════════════════════╝
+            ("Phase 1.5: Extensions", self._phase1_5_extensions),
             ("Phase 2: Parsing", self._phase2_parse),
             ("Phase 3: Semantic analysis", self._phase3_semantic),
             ("Phase 4: IR generation", self._phase4_ir),
@@ -99,6 +104,38 @@ class CompilerPipeline:
         self.spec_tokens = [t for t in tokens if t.type != TokenType.NEWLINE]
         if self.verbose:
             print(f"    Spec file: {len(tokens)} tokens ({len(self.spec_tokens)} non-NEWLINE)")
+        self.unknown_keywords = getattr(spec_lexer, '_unknown_keywords', set())
+
+    # ------------------------------------------------------------------
+    # Phase 1.5 – 扩展加载
+    # ------------------------------------------------------------------
+
+    def _phase1_5_extensions(self) -> None:
+        """加载 source/ 目录下的所有 .ext 语法扩展文件"""
+        from compiler.extension_loader import (
+            load_extensions,
+            get_keywords_from_extensions,
+            get_hw_primitives_from_extensions,
+        )
+        import os as _os
+
+        source_dir = _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.abspath(self.spec_path))),
+            'source'
+        )
+        if not _os.path.isdir(source_dir):
+            source_dir = _os.path.join(_os.path.dirname(_os.path.abspath(self.spec_path)), 'source')
+
+        self.loaded_extensions = load_extensions(source_dir)
+        self.extra_keywords = get_keywords_from_extensions(self.loaded_extensions)
+        self.extra_hw_primitives = get_hw_primitives_from_extensions(self.loaded_extensions)
+
+        if self.verbose and self.loaded_extensions:
+            print(f"    Loaded {len(self.loaded_extensions)} extensions:")
+            for ext in self.loaded_extensions:
+                print(f"      · {ext.name:20s} ({ext.ext_type:20s}) {ext.keyword or ext.operator}  {ext.description}")
+        elif self.verbose:
+            print("    (no .ext files found)")
 
     # ------------------------------------------------------------------
     # Phase 2 – Parsing
@@ -164,8 +201,48 @@ class CompilerPipeline:
     # Phase 6 – Code generation
     # ------------------------------------------------------------------
 
+    def _report_unknown_syntax(self, keywords: set) -> None:
+        """报告伪C中发现的未注册语法关键字"""
+        print()
+        print("=" * 55)
+        print("  WARNING: 发现未注册的语法元素")
+        print("=" * 55)
+        for kw in sorted(keywords):
+            print(f"  · {kw}")
+        print()
+        print("  请为每个新语法创建 .ext 扩展文件，放入 source/ 目录。")
+        print("  文件格式参考: source/README.ext")
+        print("=" * 55)
+        print()
+
     def _phase6_codegen(self) -> None:
         """Generate C header, source, and main logic files."""
+        # ╔══════════════════════════════════════════════════════════╗
+        # ║  扩展兼容性检查 — 报告源文件中未注册的语法关键字            ║
+        # ╚══════════════════════════════════════════════════════════╝
+        loaded_kw_set = set()
+        if hasattr(self, 'loaded_extensions') and self.loaded_extensions:
+            loaded_kw_set = {e.keyword for e in self.loaded_extensions if e.keyword}
+        if hasattr(self, 'unknown_keywords') and self.unknown_keywords:
+            truly_unknown = self.unknown_keywords - loaded_kw_set
+            # 排除已知的表名、寄存器名（这些是数据，不是语法）
+            reg_names = set()
+            if self.reg_data:
+                for t in self.reg_data.get('mem_tables', []):
+                    reg_names.add(t.get('name', ''))
+                for r in self.reg_data.get('registers', []):
+                    reg_names.add(r.get('name', ''))
+            # 排除已知的 built-in 宏和全局变量
+            known_ids = reg_names | {
+                'Max', 'Max3', 'PacketByte', 'PacketByte0', 'PacketByte5',
+                'PacketByte6', 'PacketByte11', 'PacketByte12', 'PacketByte13',
+                'ParserResult', 'DsMacFwd', 'DsMacLrn', 'DsMacAing',
+                'DsDestPort', 'Detect', 'Loop',
+            }
+            truly_unknown -= known_ids
+            if truly_unknown:
+                self._report_unknown_syntax(truly_unknown)
+
         os.makedirs(self.output_dir, exist_ok=True)
 
         # -- reg_drv.h / reg_drv.c --

@@ -133,6 +133,25 @@ _KEYWORDS: Dict[str, TokenType] = {
     "after":   TokenType.AFTER,
 }
 
+# ╔══════════════════════════════════════════════════════════╗
+# ║  扩展关键字注入点                                          ║
+# ║  新增关键字: 在 source/ 下创建 .ext 文件即可                ║
+# ║  格式见 source/README.ext                                 ║
+# ╚══════════════════════════════════════════════════════════╝
+try:
+    from compiler.extension_loader import load_extensions, get_keywords_from_extensions
+    import os as _os
+    _src = _os.path.join(_os.path.dirname(__file__), '..', '..', 'source')
+    _exts = load_extensions(_src)
+    for _kw, _tn in get_keywords_from_extensions(_exts).items():
+        if _kw not in _KEYWORDS:
+            try:
+                _KEYWORDS[_kw] = getattr(TokenType, _tn)
+            except AttributeError:
+                pass
+except Exception:
+    pass  # 首次编译时 extension_loader 可能还不存在，静默跳过
+
 
 # ======================================================================
 # Token
@@ -215,6 +234,7 @@ class PseudoCLexer:
         self.pos: int = 0
         self.line: int = 1
         self.column: int = 1
+        self._unknown_keywords: set[str] = set()
 
     # ------------------------------------------------------------------
     # Character-level helpers
@@ -407,6 +427,12 @@ class PseudoCLexer:
         lower = ident.lower()
         if lower in _KEYWORDS:
             return self._make_token(_KEYWORDS[lower], ident, line, col)
+
+        # ╔══════════════════════════════════════════════════════════╗
+        # ║  未识别关键字收集 — 大写开头的单词可能是未注册的扩展语法    ║
+        # ╚══════════════════════════════════════════════════════════╝
+        if ident and ident[0].isupper() and ident.lower() not in _KEYWORDS:
+            self._unknown_keywords.add(ident)
 
         return self._make_token(TokenType.IDENTIFIER, ident, line, col)
 
