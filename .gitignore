@@ -1,0 +1,20 @@
+# Generated output files (可由源码重新生成)
+output/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Compiled binaries
+*.o
+*.obj
+*.exe
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+Thumbs.db
+Desktop.ini
