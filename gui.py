@@ -108,6 +108,8 @@ class CompilerGUI:
         ext_top = ttk.Frame(ext_frame)
         ext_top.pack(fill=tk.X)
         ttk.Label(ext_top, text="已加载的扩展：").pack(side=tk.LEFT)
+        btn_remove = ttk.Button(ext_top, text="移除选中", command=self._remove_ext)
+        btn_remove.pack(side=tk.RIGHT, padx=(4, 0))
         btn_import = ttk.Button(ext_top, text="导入 .ext...", command=self._import_ext)
         btn_import.pack(side=tk.RIGHT)
 
@@ -221,6 +223,27 @@ class CompilerGUI:
                 copied += 1
         self._refresh_ext_list()
         self._log(f"已导入 {copied} 个扩展文件到 {source_dir}")
+
+    def _remove_ext(self) -> None:
+        """移除选中的 .ext 文件。"""
+        sel = self._ext_list.curselection()
+        if not sel:
+            messagebox.showinfo("提示", "请先在列表中选择要移除的扩展文件。")
+            return
+        item_text = self._ext_list.get(sel[0])
+        fname = item_text.split()[1] if len(item_text.split()) > 1 else ""
+        if not fname or not fname.endswith(".ext"):
+            messagebox.showwarning("错误", "无法解析选中的文件名。")
+            return
+        if not messagebox.askyesno("确认移除", f"确定要删除 {fname} 吗？"):
+            return
+        filepath = os.path.join(self._get_source_dir(), fname)
+        try:
+            os.remove(filepath)
+            self._log(f"已移除: {fname}")
+        except OSError as e:
+            messagebox.showerror("错误", f"删除失败: {e}")
+        self._refresh_ext_list()
 
     def _refresh_ext_list(self) -> None:
         """刷新扩展列表显示。"""
