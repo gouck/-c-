@@ -8,6 +8,10 @@
 
 1. [概述](#1-概述)
 2. [语言特征分析](#2-语言特征分析)
+   - 2.1 [tinyReg.txt 语法特征](#21-tinyregtxt-语法特征)
+   - 2.2 [8mSpec_0821.c 语法特征](#22-8mspec_0821c-语法特征)
+   - 2.3 [头文件 (.h) 规范](#23-头文件-h-规范)
+   - 2.4 [多文件工程输出映射](#24-多文件工程输出映射)
 3. [编译器整体架构](#3-编译器整体架构)
 4. [词法分析器设计](#4-词法分析器设计)
 5. [语法分析器与AST数据结构](#5-语法分析器与ast数据结构)
@@ -278,6 +282,213 @@ switch( prMacDa[7:0] ) {
 ```
 
 `~` 用于表示 case 值的连续范围匹配，非标准 C 语法。
+
+---
+
+### 2.3 头文件 (.h) 规范
+
+#### 2.3.1 定位与目的
+
+8m DSL 支持将伪代码工程拆分为多个文件，通过 `.h` 头文件实现类型声明和接口共享。与 C 语言头文件的关键区别：
+
+| 特性 | C 语言 `.h` | 8m DSL `.h` |
+|------|------------|-------------|
+| 文件扩展名 | `.h` | `.h` |
+| 预处理器指令 | `#ifndef` / `#define` / `#include` | **不支持** |
+| 包含内容 | 类型、宏、函数原型、extern | 结构体定义、函数声明、全局变量声明 |
+| 不含内容 | 函数体、变量初始化 | process 块、实现代码、初始化赋值 |
+| 作用 | 编译前预处理 | 编译器自动合并解析 |
+
+#### 2.3.2 语法规则
+
+**.h 文件允许的语法元素：**
+
+1. **注释** — `/* ... */` 或 `// ...`
+2. **结构体定义** — 末尾无分号
+3. **函数声明** — 仅有签名，无函数体 `{ }`
+4. **全局变量声明** — 无初始化值的类型声明
+
+```c
+// === types.h — 共享类型定义 ===
+struct ParserResult{
+    uint48 macDa;
+    uint48 macSa;
+    uint12 vlanId;
+    bool   isIpv4;
+}
+```
+
+```c
+// === globals.h — 全局变量声明 ===
+uint8  PacketByte[];
+uint8  piSrcPort[2:0];
+uint16 piPktLength[11:0];
+```
+
+```c
+// === parser.h — 函数接口声明 ===
+void parser( PacketByte );
+```
+
+```c
+// === switchX.h — 函数接口声明 ===
+void switchX();
+```
+
+**.h 文件禁止的语法元素：**
+
+| 禁止项 | 原因 |
+|--------|------|
+| `#ifndef` / `#define` / `#endif` | 预处理器指令不属于 DSL |
+| `#include` | 同上 |
+| `process X() { ... }` | 硬件进程属于实现，应在 `.c` 中 |
+| `void X() { ... }` | 函数实现应在 `.c` 中 |
+| `giXxx = 0;` / `piXxx++` | 初始化/运算语句 |
+| `if` / `for` / `while` / `switch` | 控制流语句 |
+| `Delay()` / `Enqueue` / `Replace` 等 | 硬件原语操作 |
+
+#### 2.3.3 推荐工程结构
+
+```
+project/
+├── globals.h         ← 全局变量声明
+├── types.h           ← 共享结构体定义
+├── parser.h          ← parser() 接口声明
+├── switchX.h         ← switchX() 接口声明
+├── egress.h          ← egress() 接口声明
+└── main.c            ← 伪代码主体：
+│     ├── 全局变量初始化
+│     ├── process 定义（调起各阶段函数）
+│     └── 各函数实现体
+```
+
+编译器编译时自动将同目录下的 `.h` 文件合并到 `.c` 文件之前解析。解析顺序：`globals.h` → `types.h` → 各接口 `.h` → `main.c`。
+
+#### 2.3.4 与 C 语言头文件的对比
+
+```c
+// ========== C 语言风格（错误） ==========
+#ifndef _PARSER_H_
+#define _PARSER_H_
+#include "types.h"
+void parser( PacketByte );
+#endif
+
+// ========== 8m DSL 风格（正确） ==========
+void parser( PacketByte );
+```
+
+8m DSL 头文件无需 include guard 和 include 指令。编译器通过文件发现机制自动处理依赖关系。
+
+---
+
+### 2.4 多文件工程输出映射
+
+#### 2.4.1 目的
+
+当输入为多文件伪代码工程时，编译器自动将每个伪代码文件映射为独立的 C 源文件/头文件，并生成正确的 `#include` 依赖关系和 include guard。
+
+#### 2.4.2 文件命名映射
+
+| 输入（伪代码工程） | 输出（C 工程） | 说明 |
+|-------------------|---------------|------|
+| `globals.h` | `8m_globals.h` | 全局变量声明 → C 头文件（+ include guard） |
+| `types.h` | `8m_types.h` | 结构体定义 → C 头文件（+ include guard） |
+| `parser.h` | `8m_parser.h` | 接口声明 → C 头文件（+ include guard） |
+| `switchX.h` | `8m_switchX.h` | 接口声明 → C 头文件（+ include guard） |
+| `egress.h` | `8m_egress.h` | 接口声明 → C 头文件（+ include guard） |
+| `main.c` | `8m_main.c` | process + 实现 → C 源文件（+ 自动 `#include`） |
+| `parser.c` | `8m_parser.c` | 函数实现 → C 源文件（+ 自动 `#include`） |
+| `switchX.c` | `8m_switchX.c` | 函数实现 → C 源文件（+ 自动 `#include`） |
+| `egress.c` | `8m_egress.c` | 函数实现 → C 源文件（+ 自动 `#include`） |
+
+命名规则：输出文件加 `8m_` 前缀以区分自动生成文件与手写文件。
+
+#### 2.4.3 自动 `#include` 生成规则
+
+编译器根据**符号引用关系**自动为每个输出 `.c` 生成 `#include` 指令。
+
+**规则 1 — 同名头文件：**
+每个 `X.c` 自动 include 对应的 `8m_X.h`：
+```c
+// 输入:  parser.c
+// 输出:  8m_parser.c 第一行
+#include "8m_parser.h"
+```
+
+**规则 2 — 类型依赖：**
+分析 `.c` 中使用的结构体类型，追溯到定义该类型的 `.h`，生成 include。
+```c
+// switchX.c 使用了 struct ParserResult 的字段
+// → 自动生成
+#include "8m_types.h"
+```
+
+**规则 3 — 全局变量依赖：**
+分析 `.c` 中引用的全局变量，追溯到声明文件，生成 include。
+```c
+// main.c 使用了 PacketByte[], piSrcPort
+// → 自动生成
+#include "8m_globals.h"
+```
+
+**规则 4 — 跨文件调用 extern：**
+如果函数 `A()` 使用了变量 `prVlanId`，而 `prVlanId` 的定义在另一个 `.c` 文件中，编译器在变量定义所在的头文件中生成 `extern` 声明。
+```c
+// 输出: 8m_parser.h
+extern uint12 prVlanId;
+extern uint48 prMacDa;
+extern uint48 prMacSa;
+// ...（编译器分析 parser.c 的赋值目标，自动生成）
+```
+
+#### 2.4.4 输出 `#include` 示例
+
+以 `8m_main.c` 为例，编译器自动生成的 include 顺序：
+```c
+// === 8m_main.c（编译器自动生成） ===
+#include "8m_globals.h"    // 规则3: PacketByte[], piSrcPort, piPktLength
+#include "8m_types.h"      // 规则2: process forward 间接引用 ParserResult
+#include "8m_parser.h"     // 规则4: main.c 调用 parser(), 使用 prXxx 变量
+#include "8m_switchX.h"    // 规则4: main.c 调用 switchX(), 使用 piXxx 变量
+#include "8m_egress.h"     // 规则4: main.c 调用 egress()
+#include <stdint.h>         // 固定基础头文件
+#include <string.h>
+
+// ... process 定义和函数实现体 ...
+```
+
+#### 2.4.5 输出 include guard 规则
+
+编译器为每个生成的 `.h` 自动添加唯一 include guard：
+```c
+// globals.h → 8m_globals.h
+#ifndef _8M_GLOBALS_H_
+#define _8M_GLOBALS_H_
+// ... 内容 ...
+#endif /* _8M_GLOBALS_H_ */
+```
+
+命名格式：`_8M_{原文件名大写}_H_`
+
+#### 2.4.6 工程级编译流程
+
+```
+输入:  source/text/ 目录                  输出: output/c_project/ 目录
+┌──────────────────────┐                ┌──────────────────────────┐
+│ globals.h            │                │ 8m_globals.h (guard)     │
+│ types.h              │   编译器       │ 8m_types.h (guard)       │
+│ parser.h             │ ──────────→   │ 8m_parser.h (guard)      │
+│ switchX.h            │   符号分析     │ 8m_switchX.h (guard)     │
+│ egress.h             │   +           │ 8m_egress.h (guard)      │
+│ parser.c             │   代码生成     │ 8m_parser.c (include)    │
+│ switchX.c            │               │ 8m_switchX.c (include)   │
+│ egress.c             │               │ 8m_egress.c (include)    │
+│ main.c               │               │ 8m_main.c (include)      │
+└──────────────────────┘                └──────────────────────────┘
+                                                │
+                                    用户可执行: gcc *.c -o 8m_switch.exe
+```
 
 ---
 
