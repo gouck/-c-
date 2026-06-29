@@ -354,7 +354,7 @@ class CCodeGenerator:
         buf.append("     (parent).field##3)")
         buf.append("")
         buf.append("/* External placeholder functions */")
-        buf.append("static inline uint32_t hash1(uint32_t v) { return v % 997; }")
+        buf.append("static inline uint32_t hash1(uint32_t v) { return v % 512; }")
         buf.append('#define Max(a, b) ((a) > (b) ? (a) : (b))')
         buf.append('#define Max3(a, b, c) Max(Max(a, b), c)')
         buf.append("void enqueue_packet(void *pkt, int len) {}")
@@ -442,7 +442,8 @@ class CCodeGenerator:
         if cross_func_vars:
             buf.append("/* Cross-function shared variables (parser → switchX → egress) */")
             for vname in sorted(cross_func_vars):
-                buf.append(f"uint32_t {vname};")
+                ct = "uint64_t" if _KNOWN_VAR_WIDTHS.get(vname, 0) > 32 else "uint32_t"
+                buf.append(f"{ct} {vname} = 0;")
             buf.append("")
 
         # Store for later use in _gen_function / _gen_process_tick
@@ -570,13 +571,13 @@ class CCodeGenerator:
 
         # Step 4: promote all VarDeclStmt variables to function top
         for vname in sorted(all_var_decl_names):
-            lines.append(self._indent(f"uint32_t {vname}; /* var-decl */"))
+            lines.append(self._indent(f"uint32_t {vname} = 0; /* var-decl */"))
 
         # Step 4b: 表读取 entry variables are now GLOBAL — skip local declaration
 
         # Step 5: declare 自动声明 variables
         for vname in sorted(undeclared):
-            lines.append(self._indent(f"uint32_t {vname}; /* auto-declared */"))
+            lines.append(self._indent(f"uint32_t {vname} = 0; /* auto-declared */"))
 
         # Step 6: record all declared names for _gen_var_decl dedup
         self._declared_vars = set()
@@ -622,11 +623,11 @@ class CCodeGenerator:
             undeclared = {n for n in undeclared if " " not in n}
 
         for vname in sorted(undeclared):
-            lines.append(self._indent(f"static uint32_t {vname}; /* auto-declared */"))
+            lines.append(self._indent(f"static uint32_t {vname} = 0; /* auto-declared */"))
 
         # promote VarDeclStmt variables (static, since process)
         for vname in sorted(all_pvar_names):
-            lines.append(self._indent(f"static uint32_t {vname}; /* var-decl */"))
+            lines.append(self._indent(f"static uint32_t {vname} = 0; /* var-decl */"))
         self._process_vars.update({n: "uint32_t" for n in all_pvar_names})
 
         # 表读取 entry variables are now GLOBAL — skip local declaration
