@@ -96,10 +96,33 @@ class CompilerGUI:
                              default=_get_default_path("8mSpec_0821.c"),
                              callback=self._browse_spec)
 
-        # reg 文件行
-        self._build_file_row(file_frame, "Reg 文件:", 1,
-                             default=_get_default_path("tinyReg.txt"),
-                             callback=self._browse_reg)
+        # reg 文件区 — 改为多文件选择
+        reg_row = ttk.Frame(file_frame)
+        reg_row.pack(fill=tk.X, pady=2)
+        ttk.Label(reg_row, text="Reg 文件:", width=10).pack(side=tk.LEFT)
+
+        # 用一个 Frame 装 listbox + 按钮
+        reg_list_frame = ttk.Frame(reg_row)
+        reg_list_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        self._reg_list = tk.Listbox(reg_list_frame, height=3, font=("Consolas", 9))
+        self._reg_list.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        reg_scroll = ttk.Scrollbar(reg_list_frame, orient=tk.VERTICAL,
+                                   command=self._reg_list.yview)
+        reg_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self._reg_list.config(yscrollcommand=reg_scroll.set)
+
+        # 按钮列
+        reg_btn_frame = ttk.Frame(reg_row)
+        reg_btn_frame.pack(side=tk.RIGHT)
+        ttk.Button(reg_btn_frame, text="添加...", command=self._browse_reg_add).pack(
+            side=tk.TOP, fill=tk.X, pady=(0,2))
+        ttk.Button(reg_btn_frame, text="移除", command=self._browse_reg_remove).pack(
+            side=tk.TOP, fill=tk.X)
+
+        # 预填默认 reg 文件
+        default_reg = _get_default_path("tinyReg.txt")
+        if default_reg and os.path.isfile(default_reg):
+            self._reg_list.insert(tk.END, os.path.normpath(default_reg))
 
         # ── 扩展文件区 ──
         ext_frame = ttk.LabelFrame(main, text=" 扩展文件 (.ext) ", padding="8")
@@ -164,13 +187,9 @@ class CompilerGUI:
         entry = ttk.Entry(frame, textvariable=var)
         entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         ttk.Button(frame, text="浏览...", command=callback).pack(side=tk.RIGHT)
-        # 保存引用
-        if row == 0:
-            self._spec_var = var
-            self._spec_entry = entry
-        else:
-            self._reg_var = var
-            self._reg_entry = entry
+        # 保存引用（现在只用于 spec 文件行）
+        self._spec_var = var
+        self._spec_entry = entry
 
     # ==================================================================
     # 文件浏览回调
@@ -184,13 +203,25 @@ class CompilerGUI:
         if path:
             self._spec_var.set(os.path.normpath(path))
 
-    def _browse_reg(self) -> None:
-        path = filedialog.askopenfilename(
-            title="选择 Reg 文件",
+    def _browse_reg_add(self) -> None:
+        """添加 reg 文件（支持多选）。"""
+        paths = filedialog.askopenfilenames(
+            title="选择 Reg 文件（可多选）",
             filetypes=[("TXT 文件", "*.txt"), ("所有文件", "*.*")]
         )
-        if path:
-            self._reg_var.set(os.path.normpath(path))
+        for p in paths:
+            np = os.path.normpath(p)
+            # 避免重复添加
+            existing = list(self._reg_list.get(0, tk.END))
+            if np not in existing:
+                self._reg_list.insert(tk.END, np)
+
+    def _browse_reg_remove(self) -> None:
+        """移除选中的 reg 文件。"""
+        selected = self._reg_list.curselection()
+        # 从后往前删，避免索引错位
+        for i in reversed(selected):
+            self._reg_list.delete(i)
 
     def _browse_output(self) -> None:
         path = filedialog.askdirectory(title="选择输出目录")
@@ -312,14 +343,15 @@ class CompilerGUI:
     def _compile(self) -> None:
         """启动编译线程。"""
         spec = self._spec_var.get().strip()
-        reg = self._reg_var.get().strip()
+        reg_list = list(self._reg_list.get(0, tk.END))
+        reg_list = [r.strip() for r in reg_list if r.strip()]
         out_dir = self._out_var.get().strip()
 
-        if not spec or not reg:
-            messagebox.showwarning("输入不完整", "请先选择 Spec 文件和 Reg 文件。")
+        if not spec or not reg_list:
+            messagebox.showwarning("输入不完整", "请先选择 Spec 文件和至少一个 Reg 文件。")
             return
 
-        # 刷新扩展列表（编译前重新加载）
+        # 刷新扩展列表
         self._refresh_ext_list()
 
         self._compile_btn.config(state=tk.DISABLED)
@@ -327,14 +359,15 @@ class CompilerGUI:
         self._status_label.config(foreground="orange")
         self._clear_log()
 
-        thread = threading.Thread(target=self._compile_thread, args=(spec, reg, out_dir), daemon=True)
+        thread = threading.Thread(target=self._compile_thread,
+                                  args=(spec, reg_list, out_dir), daemon=True)
         thread.start()
 
-    def _compile_thread(self, spec: str, reg: str, out_dir: str) -> None:
+    def _compile_thread(self, spec: str, reg_list: list, out_dir: str) -> None:
         """后台编译线程。"""
         try:
             from compiler.pipeline import CompilerPipeline
-            pipeline = CompilerPipeline(spec, reg, out_dir, "c", True)
+            pipeline = CompilerPipeline(spec, reg_list, out_dir, "c", True)
             old_stdout = sys.stdout
             sys.stdout = self._log_buffer = StringIO()
             pipeline.run()

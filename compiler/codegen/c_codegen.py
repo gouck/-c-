@@ -37,7 +37,7 @@ _FIELD_ALIASES: "dict[str, str]" = {
     "PriorAssignCtl.ip1Addr": "PriorAssignCtl.ip1AddrBit127To96",
     "PriorAssignCtl.ip1Mask": "PriorAssignCtl.ip1MaskBit127To96",
     "LoopDetectCtl.loopMac": "LoopDetectCtl.loopMacHi",
-    "PriorAssignCtl.dscpWeight": "PriorAssignCtl.DscpWeight",
+    "PriorAssignCtl.dscpWeight": "PriorAssignCtl.dscpWeight",
 }
 
 # Table name aliases: pseudo-C name → actual reg_drv.h mem-array name
@@ -330,15 +330,24 @@ class CCodeGenerator:
         for proc in self.ast.model.processes:
             scan_stmt(proc)
 
-    def generate(self) -> str:
-        """Return the complete .c file as a string."""
+    def generate(self, reg_drv_includes: "Optional[List[str]]" = None) -> str:
+        """Return the complete .c file as a string.
+        
+        Args:
+            reg_drv_includes: If provided, use these header names instead of
+                              the default "reg_drv.h". Used for split-reg mode.
+        """
         # Pre-scan to collect variable bit-widths before code generation
         self._pre_scan_var_widths()
 
         buf: List[str] = []
 
         # headers
-        buf.append('#include "reg_drv.h"')
+        if reg_drv_includes:
+            for h in reg_drv_includes:
+                buf.append(f'#include "{h}"')
+        else:
+            buf.append('#include "reg_drv.h"')
         buf.append("#include <stdint.h>")
         buf.append("#include <string.h>")
         buf.append("")
@@ -357,8 +366,8 @@ class CCodeGenerator:
         buf.append("static inline uint32_t hash1(uint32_t v) { return v % 512; }")
         buf.append('#define Max(a, b) ((a) > (b) ? (a) : (b))')
         buf.append('#define Max3(a, b, c) Max(Max(a, b), c)')
-        buf.append("void enqueue_packet(void *pkt, int len) {}")
-        buf.append("void send_packet(void *pkt, int len) {}")
+        buf.append("__attribute__((weak)) void enqueue_packet(void *pkt, int len) {}")
+        buf.append("__attribute__((weak)) void send_packet(void *pkt, int len) {}")
         buf.append("")
         buf.append("/* Global packet buffer */")
         buf.append("extern uint8_t PacketByte[512];")

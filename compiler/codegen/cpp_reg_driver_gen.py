@@ -403,18 +403,26 @@ class CRegDriverGenerator:
     # Header generation
     # ==================================================================
 
-    def generate_header(self) -> str:
+    def generate_header(self, guard_suffix: str = "") -> str:
         """
         Generate the C header file content.
+
+        Args:
+            guard_suffix: If non-empty, appended to the include guard macro name
+                          to allow multiple reg_drv headers to coexist.
+                          e.g. "tinyReg" → _REG_DRV_TINYREG_H_
 
         Returns:
             A string containing the complete C header file.
         """
         buf: List[str] = []
 
-        # -- include guard --
-        buf.append("#ifndef _REG_DRV_H_")
-        buf.append("#define _REG_DRV_H_")
+        # -- unique include guard --
+        guard = "_REG_DRV_H_"
+        if guard_suffix:
+            guard = f"_REG_DRV_{guard_suffix.upper()}_H_"
+        buf.append(f"#ifndef {guard}")
+        buf.append(f"#define {guard}")
         buf.append("")
         buf.append("#include <stdint.h>")
         buf.append("")
@@ -422,8 +430,9 @@ class CRegDriverGenerator:
         # -- address macros --
         buf.extend(self._gen_address_macros())
 
-        # -- bitfield macros --
-        buf.extend(self._gen_bitfield_macros())
+        # -- bitfield macros (only in the base header, skip for split files) --
+        if not guard_suffix:
+            buf.extend(self._gen_bitfield_macros())
 
         # -- mem table structs --
         for table in self._reg_map.mem_tables:
@@ -437,7 +446,7 @@ class CRegDriverGenerator:
         buf.extend(self._gen_reg_init_decl())
 
         # -- include guard close --
-        buf.append("#endif /* _REG_DRV_H_ */")
+        buf.append(f"#endif /* {guard} */")
         return "\n".join(buf) + "\n"
 
     # ==================================================================

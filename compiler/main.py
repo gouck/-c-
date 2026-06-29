@@ -9,8 +9,29 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+import glob
 from typing import List, Optional
+
+
+def _resolve_reg_files(reg_args: List[str]) -> List[str]:
+    """Resolve reg_file arguments to a flat list of reg file paths.
+    
+    Each argument can be:
+      - a single .txt file → added directly
+      - a directory → all *.txt files inside are added (sorted)
+    """
+    files: List[str] = []
+    for arg in reg_args:
+        if os.path.isdir(arg):
+            found = sorted(glob.glob(os.path.join(arg, "*.txt")))
+            if not found:
+                print(f"Warning: no .txt files found in {arg}")
+            files.extend(found)
+        else:
+            files.append(arg)
+    return files
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -34,8 +55,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Pseudo-C source file describing switch behaviour",
     )
     parser.add_argument(
-        "reg_file",
-        help="tinyReg.txt register table DSL file",
+        "reg_files",
+        nargs="+",
+        help="tinyReg.txt file(s) and/or directory(ies) of .txt files",
     )
 
     # Optional arguments
@@ -59,9 +81,17 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     args = parser.parse_args(argv)
 
+    reg_files = _resolve_reg_files(args.reg_files)
+    if not reg_files:
+        print("Error: no register files found.")
+        return 1
+
     print("8m Compiler v0.1.0")
     print(f"  Spec file   : {args.spec_file}")
-    print(f"  Register file: {args.reg_file}")
+    print(f"  Register file(s): {len(reg_files)} file(s)")
+    if len(reg_files) <= 5:
+        for rf in reg_files:
+            print(f"    - {rf}")
     print(f"  Output dir  : {args.output_dir}")
     print(f"  Target      : {args.target}")
     print(f"  Verbose     : {args.verbose}")
@@ -69,7 +99,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     from compiler.pipeline import CompilerPipeline
     pipeline = CompilerPipeline(
         spec_path=args.spec_file,
-        reg_path=args.reg_file,
+        reg_paths=reg_files,
         output_dir=args.output_dir,
         target=args.target,
         verbose=args.verbose,

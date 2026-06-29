@@ -39,13 +39,13 @@ class CompilerPipeline:
     def __init__(
         self,
         spec_path: str,
-        reg_path: str,
+        reg_paths: list,
         output_dir: str,
         target: str,
         verbose: bool,
     ) -> None:
         self.spec_path: str = spec_path
-        self.reg_path: str = reg_path
+        self.reg_paths: list = reg_paths
         self.output_dir: str = output_dir
         self.target: str = target
         self.verbose: bool = verbose
@@ -87,14 +87,36 @@ class CompilerPipeline:
 
     def _phase1_lex(self) -> None:
         """Lex both input files into structured data / token lists."""
-        # tinyReg.txt → structured dict
-        with open(self.reg_path, "r", encoding="utf-8") as f:
-            reg_text = f.read()
-        lexer = TabLexer(reg_text)
-        self.reg_data = lexer.tokenize()
-        if self.verbose:
-            print(f"    Register file: {len(self.reg_data.get('mem_tables',[]))} tables, "
-                  f"{len(self.reg_data.get('registers',[]))} registers")
+        # tinyReg.txt(s) → merged structured dict + individual dicts
+        merged_data: Dict = {"config": {}, "mem_tables": [], "registers": []}
+        self._individual_reg_data: list = []  # per-file data for split output
+        first_config = True
+        for rp in self.reg_paths:
+            with open(rp, "r", encoding="utf-8") as f:
+                reg_text = f.read()
+            lexer = TabLexer(reg_text)
+            try:
+                data = lexer.tokenize()
+            except Exception as e:
+                print(f"    Skipping {os.path.basename(rp)}: {e}")
+                continue
+            # Store individual data
+            self._individual_reg_data.append(data)
+            # Merge for unified symbol table
+            if first_config:
+                merged_data["config"] = data.get("config", {})
+                first_config = False
+            merged_data["mem_tables"].extend(data.get("mem_tables", []))
+            merged_data["registers"].extend(data.get("registers", []))
+            if self.verbose:
+                print(f"    Reg file {os.path.basename(rp)}: "
+                      f"{len(data.get('mem_tables',[]))} tables, "
+                      f"{len(data.get('registers',[]))} registers")
+        self.reg_data = merged_data
+        total_tables = len(self.reg_data.get("mem_tables", []))
+        total_regs = len(self.reg_data.get("registers", []))
+        if self.verbose and len(self.reg_paths) > 1:
+            print(f"    Total merged: {total_tables} tables, {total_regs} registers")
 
         # 8mSpec_0821.c → Token list
         with open(self.spec_path, "r", encoding="utf-8") as f:
@@ -143,11 +165,22 @@ class CompilerPipeline:
 
     def _phase2_parse(self) -> None:
         """Parse both representations into ASTs."""
-        # Register map → RegMapDef
+        # Parse each individual reg file → separate RegMapDef (for per-file output)
+        self._individual_reg_maps: list = []
+        for i, data in enumerate(self._individual_reg_data):
+            parser = RegMapParser(data)
+            reg_map = parser.parse()
+            self._individual_reg_maps.append(reg_map)
+            if self.verbose:
+                label = os.path.basename(self.reg_paths[i]) if i < len(self.reg_paths) else f"reg_{i}"
+                print(f"    Reg map [{label}]: {len(reg_map.mem_tables)} tables, "
+                      f"{len(reg_map.registers)} registers")
+
+        # Merged register map (for symbol table & backward compat)
         parser = RegMapParser(self.reg_data)
         self.reg_map = parser.parse()
-        if self.verbose:
-            print(f"    Register map: {len(self.reg_map.mem_tables)} tables, "
+        if self.verbose and len(self._individual_reg_data) > 1:
+            print(f"    Register map (merged): {len(self.reg_map.mem_tables)} tables, "
                   f"{len(self.reg_map.registers)} registers")
 
         # Pseudo-C → PseudoCModel
@@ -245,24 +278,67 @@ class CompilerPipeline:
 
         os.makedirs(self.output_dir, exist_ok=True)
 
-        # -- reg_drv.h / reg_drv.c --
-        drv_gen = CRegDriverGenerator(self.reg_map)
-        header = drv_gen.generate_header()
-        source = drv_gen.generate_source()
+        # -- 为每个 reg 文件独立生成 reg_drv_N.h / reg_drv_N.c --
+        reg_drv_headers: List[str] = []  # 收集所有生成的 .h 文件名
+        if hasattr(self, '_individual_reg_maps') and len(self._individual_reg_maps) > 1:
+            # 生成共享宏文件 (BITFIELD_GET/SET 等，只此一份)
+            common_macros = CRegDriverGenerator._gen_bitfield_macros()
+            common_h = "#ifndef _REG_DRV_COMMON_H_\n#define _REG_DRV_COMMON_H_\n\n"
+            common_h += "#include <stdint.h>\n\n"
+            common_h += "\n".join(common_macros) + "\n\n"
+            common_h += "#endif /* _REG_DRV_COMMON_H_ */\n"
+            common_path = os.path.join(self.output_dir, "reg_drv_common.h")
+            with open(common_path, "w", encoding="utf-8") as f:
+                f.write(common_h)
+            reg_drv_headers.append("reg_drv_common.h")
+            if self.verbose:
+                print(f"    {common_path} (shared macros)")
 
-        h_path = os.path.join(self.output_dir, "reg_drv.h")
-        c_path = os.path.join(self.output_dir, "reg_drv.c")
-        with open(h_path, "w", encoding="utf-8") as f:
-            f.write(header)
-        with open(c_path, "w", encoding="utf-8") as f:
-            f.write(source)
-        if self.verbose:
-            print(f"    {h_path} ({len(header)} bytes)")
-            print(f"    {c_path} ({len(source)} bytes)")
+            for i, reg_map in enumerate(self._individual_reg_maps):
+                fname = os.path.splitext(os.path.basename(self.reg_paths[i]))[0] if i < len(self.reg_paths) else f"reg_{i}"
+                drv_gen = CRegDriverGenerator(reg_map)
+                header = drv_gen.generate_header(guard_suffix=fname)
+                source = drv_gen.generate_source()
+
+                h_name = f"reg_drv_{fname}.h"
+                c_name = f"reg_drv_{fname}.c"
+                h_path = os.path.join(self.output_dir, h_name)
+                c_path = os.path.join(self.output_dir, c_name)
+                with open(h_path, "w", encoding="utf-8") as f:
+                    f.write(header)
+                with open(c_path, "w", encoding="utf-8") as f:
+                    f.write(source)
+                reg_drv_headers.append(h_name)
+                if self.verbose:
+                    print(f"    {h_path} ({len(header)} bytes)")
+                    print(f"    {c_path} ({len(source)} bytes)")
+
+            # 不再生成 wrapper reg_drv.h / reg_drv.c
+            # output.c 直接 include 各子文件
+            if self.verbose:
+                print(f"    (output.c includes {len(reg_drv_headers)} files directly)")
+        else:
+            # 单文件 → 保持原有行为
+            drv_gen = CRegDriverGenerator(self.reg_map)
+            header = drv_gen.generate_header()
+            source = drv_gen.generate_source()
+            h_path = os.path.join(self.output_dir, "reg_drv.h")
+            c_path = os.path.join(self.output_dir, "reg_drv.c")
+            with open(h_path, "w", encoding="utf-8") as f:
+                f.write(header)
+            with open(c_path, "w", encoding="utf-8") as f:
+                f.write(source)
+            if self.verbose:
+                print(f"    {h_path} ({len(header)} bytes)")
+                print(f"    {c_path} ({len(source)} bytes)")
+
 
         # -- output.c (main logic) --
         codegen = CCodeGenerator(self.translation_unit, self.symtab)
-        main_code = codegen.generate()
+        if hasattr(self, '_individual_reg_maps') and len(self._individual_reg_maps) > 1:
+            main_code = codegen.generate(reg_drv_includes=reg_drv_headers)
+        else:
+            main_code = codegen.generate()
         out_path = os.path.join(self.output_dir, "output.c")
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(main_code)
