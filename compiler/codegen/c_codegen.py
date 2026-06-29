@@ -50,6 +50,70 @@ _NAME_CORRECTIONS: "dict[str, str]" = {
     "DsMacAing": "DsMacAging",
 }
 
+# Known variable bit-widths used in concat expressions.
+# These are derived from the DSL's domain knowledge (tinyReg field widths,
+# explicit [hi:lo] annotations, etc.) where automatic width inference
+# cannot reach (e.g. parser→switch cross-function variables).
+_KNOWN_VAR_WIDTHS: "dict[str, int]" = {
+    "prMacDa": 48,       # MAC destination address (6 bytes)
+    "prMacSa": 48,       # MAC source address (6 bytes)
+    "giFid": 12,         # FID from DsVlan.fid[11:0]
+    "piFid": 12,         # same as giFid
+    "prVlanId": 12,      # VLAN ID [11:0]
+    "piVlanId": 12,      # VLAN ID (copy)
+    "giVid": 12,         # VLAN ID (may be portVid or prVlanId)
+    "piPortVid": 12,     # Port default VLAN ID
+    "prVlanPrior": 3,    # VLAN priority [2:0]
+    "piPrior": 2,        # Final priority [1:0]
+    "piPortPrior": 2,    # Port priority [1:0]
+    "piVlanPrior": 2,    # VLAN priority [1:0]
+    "piDscpPrior": 2,    # DSCP priority [1:0]
+    "piMacDaPrior": 2,   # MAC DA priority [1:0]
+    "piIpAddrPrior": 2,  # IP address priority [1:0]
+    "piVlanMember": 10,  # VLAN member bitmap
+    "piFwdBmp": 10,      # Forwarding bitmap [9:0]
+    "piUntagFlag": 10,   # Untag flag [9:0]
+    "piSrcPort": 3,      # Source port [2:0]
+    "piDestPort": 3,     # Destination port [2:0]
+    "piPktLength": 14,   # Packet length
+    "giPldOffset": 8,    # Payload offset
+    "giHashIdx": 9,      # Hash index [8:0]
+    "giLrnHash": 9,      # Learn hash index [8:0]
+    "giLrnSubIdx": 2,    # Learn sub-index (way) [1:0]
+    "piLoopTtl": 4,      # Loop detect TTL [3:0]
+    "prLoopTtl": 4,      # Loop detect TTL (copy)
+    "piPktTagged": 1,    # Packet tagged flag
+    "prExistVlan": 1,    # Existing VLAN flag
+    "piOutNoVlan": 1,    # Output no-VLAN flag
+    "piIsLoopDetect": 1, # Is loop detection
+    "prIsLoopDetection": 1,
+    "prIsArp": 1,
+    "prIsIpv4": 1,
+    "prIsIpv6": 1,
+    "piBcast": 1,        # Broadcast flag
+    "piMcast": 1,        # Multicast flag
+    "piBrgHit": 1,       # Bridge hit flag
+    "piDiscard": 1,      # Discard flag
+    "piFlooding": 1,     # Flooding flag
+    "piLrnDisable": 1,
+    "piAllowBrg2Src": 1,
+    "giVlanHit": 1,
+    "giLrnHit": 1,
+    "giLrnNew": 1,
+    "giLruLrn": 1,
+    "piRmaMode": 1,
+    "piPortMirror": 1,
+    "piVlanMirror": 1,
+    "piEgressFilter": 1,
+    "piLeakyUcast": 1,
+    "piLeakyMcast": 1,
+    "piLeakyBcast": 1,
+    "piLeakyArp": 1,
+    "piLeakyMirror": 1,
+    "pi1qBasedVlan": 1,
+    "pi1qPriorEn": 1,
+}
+
 
 # ======================================================================
 # CCodeGenerator
@@ -67,13 +131,210 @@ class CCodeGenerator:
         self._fsm_state: int = 0
         self._in_process: bool = False
         self._declared_vars: set[str] = set()
+        # Track variable bit widths inferred from assignments / declarations
+        self._var_widths: Dict[str, int] = {}
+        # Track table way bits: table_name → number of bits for the way index
+        self._table_way_bits: Dict[str, int] = {}
+
+    # ==================================================================
+    # helpers
+    # ==================================================================
+
+    @staticmethod
+    def _is_packet_byte_index(name: str) -> "Optional[int]":
+        """If name is 'PacketByte<N>', return N as int; else None."""
+        import re
+        m = re.match(r'^PacketByte(\d+)$', name)
+        if m:
+            return int(m.group(1))
+        return None
+
+    def _resolve_name(self, name: str) -> str:
+        """Resolve an identifier name, converting PacketByte<N> → PacketByte[<N>]."""
+        idx = self._is_packet_byte_index(name)
+        if idx is not None:
+            return f"PacketByte[{idx}]"
+        # Apply typo corrections
+        if name in _NAME_CORRECTIONS:
+            name = _NAME_CORRECTIONS[name]
+        return name
+
+    def _get_bit_width(self, expr: Expr) -> "Optional[int]":
+        """Determine the bit width of an expression, if known.
+        
+        Returns None when the width cannot be determined.
+        """
+        if isinstance(expr, BinLiteral):
+            return expr.width
+        if isinstance(expr, HexLiteral):
+            return expr.width
+        if isinstance(expr, IntLiteral):
+            # Decimal literal without explicit width: cannot determine
+            return None
+        if isinstance(expr, BitSliceExpr):
+            return expr.hi_bit - expr.lo_bit + 1
+        if isinstance(expr, BitIndexExpr):
+            return 1
+        if isinstance(expr, FieldAccessExpr):
+            w = self._infer_field_width(expr)
+            if w is not None:
+                return w
+            # Try symbol table
+            if isinstance(expr.base, IdentifierExpr):
+                full_key = f"{expr.base.name}.{expr.field}"
+                # Check field alias
+                if full_key in _FIELD_ALIASES:
+                    resolved = _FIELD_ALIASES[full_key]
+                    parts = resolved.split(".")
+                    w = self._infer_field_width_from_name(parts[0], parts[-1])
+                    if w is not None:
+                        return w
+                w = self._infer_field_width_from_name(expr.base.name, expr.field)
+                if w is not None:
+                    return w
+            return None
+        if isinstance(expr, IdentifierExpr):
+            # Check tracked variable widths
+            if expr.name in self._var_widths:
+                return self._var_widths[expr.name]
+            # Check known widths from domain knowledge
+            if expr.name in _KNOWN_VAR_WIDTHS:
+                return _KNOWN_VAR_WIDTHS[expr.name]
+            return None
+        if isinstance(expr, ConcatExpr):
+            widths = [self._get_bit_width(p) for p in expr.parts]
+            if all(w is not None for w in widths):
+                return sum(widths)
+            return None
+        if isinstance(expr, BinaryOpExpr):
+            if expr.op == "<<":
+                # x << N: width = width(x) + N
+                base_w = self._get_bit_width(expr.left)
+                if base_w is not None and isinstance(expr.right, IntLiteral):
+                    return base_w + expr.right.value
+            return None
+        return None
+
+    def _infer_field_width(self, expr: "FieldAccessExpr") -> "Optional[int]":
+        """Infer the bit-width of a field access expression from the symtab."""
+        if not isinstance(expr.base, IdentifierExpr):
+            return None
+        return self._infer_field_width_from_name(expr.base.name, expr.field)
+
+    def _infer_field_width_from_name(self, parent_name: str, field_name: str) -> "Optional[int]":
+        """Look up a field's bit width from the symbol table."""
+        sym = self.symtab.lookup(parent_name)
+        if sym is None or sym.decl is None:
+            return None
+        # sym.decl is a MemTableDecl or RegisterDecl with .fields
+        if not hasattr(sym.decl, 'fields'):
+            return None
+        for f in sym.decl.fields:
+            if f.name == field_name:
+                return f.hi_bit - f.lo_bit + 1
+        return None
+
+    def _track_var_width(self, name: str, width: int) -> None:
+        """Record the bit width of a variable."""
+        if name in _NAME_CORRECTIONS:
+            name = _NAME_CORRECTIONS[name]
+        self._var_widths[name] = width
+
+    def _infer_table_way_bits(self, table_name: str) -> int:
+        """Infer the number of way-index bits for a set-associative table.
+        
+        Heuristic: if a table has 4x the entries of a related table sharing
+        the same prefix stem (e.g. DsMac 2048 vs DsMacAging 512), it is
+        likely 4-way set-associative → way bits = 2.
+        """
+        if table_name in self._table_way_bits:
+            return self._table_way_bits[table_name]
+        sym = self.symtab.lookup(table_name)
+        if sym is None or sym.decl is None:
+            self._table_way_bits[table_name] = 0
+            return 0
+        if not hasattr(sym.decl, 'num_entries'):
+            self._table_way_bits[table_name] = 0
+            return 0
+        my_entries = sym.decl.num_entries
+        # Look for a table with the same prefix stem and 1/4 the entries
+        for other_name, other_sym in self.symtab.symbols.items():
+            if other_sym.kind != "table":
+                continue
+            if other_name == table_name:
+                continue
+            if not hasattr(other_sym.decl, 'num_entries'):
+                continue
+            # Check if names share a common prefix
+            if table_name.startswith(other_name) or other_name.startswith(table_name):
+                other_entries = other_sym.decl.num_entries
+                if my_entries == other_entries * 4:
+                    # 4-way set-associative
+                    way_bits = 2
+                    self._table_way_bits[table_name] = way_bits
+                    return way_bits
+        # Default: single-way (way bits = 0)
+        self._table_way_bits[table_name] = 0
+        return 0
 
     # ==================================================================
     # generate
     # ==================================================================
 
+    def _pre_scan_var_widths(self) -> None:
+        """Pre-scan the entire AST to infer variable bit-widths from assignments.
+        
+        This is called once before code generation to ensure that variable widths
+        are available when generating concat expressions across function boundaries.
+        """
+        if self.ast.model is None:
+            return
+        
+        def scan_stmt(stmt) -> None:
+            if stmt is None:
+                return
+            if isinstance(stmt, AssignStmt):
+                # Case 1: LHS is x[hi:lo] = rhs → x has width hi-lo+1
+                if isinstance(stmt.lhs, BitSliceExpr) and isinstance(stmt.lhs.base, IdentifierExpr):
+                    w = stmt.lhs.hi_bit - stmt.lhs.lo_bit + 1
+                    self._track_var_width(stmt.lhs.base.name, w)
+                # Case 2: LHS is plain variable, RHS is BITFIELD_GET (BitSliceExpr)
+                elif isinstance(stmt.lhs, IdentifierExpr) and isinstance(stmt.rhs, BitSliceExpr):
+                    w = stmt.rhs.hi_bit - stmt.rhs.lo_bit + 1
+                    self._track_var_width(stmt.lhs.name, w)
+                # Case 3: LHS is plain variable, RHS is ConcatExpr
+                elif isinstance(stmt.lhs, IdentifierExpr) and isinstance(stmt.rhs, ConcatExpr):
+                    w = self._get_bit_width(stmt.rhs)
+                    if w is not None:
+                        self._track_var_width(stmt.lhs.name, w)
+            if isinstance(stmt, CompoundStmt):
+                for s in stmt.stmts:
+                    scan_stmt(s)
+            if isinstance(stmt, IfStmt):
+                scan_stmt(stmt.then_stmt)
+                scan_stmt(stmt.else_stmt)
+            if isinstance(stmt, WhileStmt):
+                scan_stmt(stmt.body)
+            if isinstance(stmt, ForStmt):
+                scan_stmt(stmt.body)
+            if isinstance(stmt, SwitchStmt):
+                for cs in stmt.cases:
+                    scan_stmt(cs)
+            if isinstance(stmt, CaseStmt):
+                scan_stmt(stmt.stmt)
+            if isinstance(stmt, (FunctionDef, ProcessDef)):
+                scan_stmt(stmt.body)
+
+        for func in self.ast.model.functions:
+            scan_stmt(func)
+        for proc in self.ast.model.processes:
+            scan_stmt(proc)
+
     def generate(self) -> str:
         """Return the complete .c file as a string."""
+        # Pre-scan to collect variable bit-widths before code generation
+        self._pre_scan_var_widths()
+
         buf: List[str] = []
 
         # headers
@@ -85,7 +346,6 @@ class CCodeGenerator:
         buf.append("/*  8m auto-generated C code                             */")
         buf.append("/* =================================================== */")
         buf.append("")
-        buf.append("#define CONCAT_RANGE(start, end) 0 /* TODO: expand range */")
         buf.append("")
         buf.append("#define FIELD_INDEX_GET(parent, field, idx) \\")
         buf.append("    ((idx) == 0 ? (parent).field##0 : \\")
@@ -102,6 +362,13 @@ class CCodeGenerator:
         buf.append("")
         buf.append("/* Global packet buffer */")
         buf.append("extern uint8_t PacketByte[512];")
+        buf.append("")
+        buf.append("static inline uint64_t _concat_range(uint32_t s, uint32_t e) {")
+        buf.append("    uint64_t result = 0;")
+        buf.append("    for (uint32_t i = s; i <= e; i++)")
+        buf.append("        result = (result << 8) | PacketByte[i];")
+        buf.append("    return result;")
+        buf.append("}")
         buf.append("")
 
         # structs
@@ -126,6 +393,60 @@ class CCodeGenerator:
                 entry_type = all_global_tables[vname]
                 buf.append(f"{entry_type} {vname};")
             buf.append("")
+
+        # ---- collect ALL cross-function shared variables ----
+        # Variables that appear in >1 function must be global (not local)
+        cross_func_vars: set[str] = set()
+        if self.ast.model is not None:
+            func_names: "dict[str, set[str]]" = {}
+            for func in self.ast.model.functions:
+                names: set[str] = set()
+                if func.body is not None:
+                    self._walk_collect_names(func.body, names)
+                # Filter: only user-defined identifiers (not built-in/C keywords)
+                names = {n for n in names if " " not in n and not n.startswith("_")}
+                func_names[func.name] = names
+            # Find names used in >1 function
+            all_names: "dict[str, int]" = {}
+            for names in func_names.values():
+                for n in names:
+                    all_names[n] = all_names.get(n, 0) + 1
+            for n, cnt in all_names.items():
+                if cnt > 1:
+                    cross_func_vars.add(n)
+
+        # Also add well-known shared variables that may not be in symbol table
+        cross_func_vars.update({
+            "piSrcPort", "piPktLength", "piDestPort",
+            "piVlanId", "piPrior", "piOutNoVlan", "piPktTagged",
+            "piIsLoopDetect", "piLoopTtl",
+        })
+
+        # Remove names that are already global table entries, registers, or PacketByte variants
+        cross_func_vars -= set(all_global_tables.keys())
+        cross_func_vars -= {"PacketByte", "PacketByte0", "PacketByte5", "PacketByte6",
+                            "PacketByte11", "PacketByte12", "PacketByte13"}
+        # Remove PacketByte<N> pattern names
+        cross_func_vars = {n for n in cross_func_vars if self._is_packet_byte_index(n) is None}
+        # Remove register/table names (identifiers ending in Ctl, or known register names)
+        _KNOWN_REGISTERS = {
+            "L2AgingCtl", "L2LearnCtl", "LoopDetectCtl", "MirrorCtl",
+            "PriorAssignCtl", "StormCfgCtl", "VlanIdCamCtl",
+        }
+        cross_func_vars -= _KNOWN_REGISTERS
+        # Remove names that match table entry types
+        cross_func_vars = {n for n in cross_func_vars if not n.startswith("Ds") or n in {
+            "DsDestPort", "DsMacFwd", "DsMacLrn", "DsMacAing",
+        }}
+
+        if cross_func_vars:
+            buf.append("/* Cross-function shared variables (parser → switchX → egress) */")
+            for vname in sorted(cross_func_vars):
+                buf.append(f"uint32_t {vname};")
+            buf.append("")
+
+        # Store for later use in _gen_function / _gen_process_tick
+        self._cross_func_vars = cross_func_vars
 
         # forward declarations
         if self.ast.model is not None:
@@ -212,6 +533,10 @@ class CCodeGenerator:
         all_var_decl_names: set[str] = set()
         if func.body is not None:
             self._collect_all_var_names(func.body, all_var_decl_names)
+
+        # Remove cross-function globals from local var-decls (already declared global)
+        if hasattr(self, '_cross_func_vars'):
+            all_var_decl_names -= self._cross_func_vars
 
         # Step 2: collect all TableReadStmt target_var names + types
         table_read_names: set[str] = set()
@@ -493,6 +818,12 @@ class CCodeGenerator:
                 "PacketByte", "hash1", "enqueue_packet", "send_packet",
             ):
                 declared.add(n)
+            # PacketByte<N> identifiers are array element references, not variables
+            if self._is_packet_byte_index(n) is not None:
+                declared.add(n)
+            # Cross-function shared variables (already declared global)
+            if hasattr(self, '_cross_func_vars') and n in self._cross_func_vars:
+                declared.add(n)
         # filter out multi-word identifiers (natural-language residue from hw primitives)
         names = {n for n in names if " " not in n}
         # 自动纠正 common typo: PacketBypte → PacketByte, DsMacAing → DsMacAging
@@ -519,6 +850,22 @@ class CCodeGenerator:
         if isinstance(node, list):
             for item in node:
                 self._walk_collect_names(item, names)
+            return
+        # Collect VarDeclStmt names (which are strings, skipped by the check above)
+        from compiler.parser.ast_nodes import VarDeclStmt, AssignStmt
+        if isinstance(node, VarDeclStmt):
+            names.add(node.name)
+            if node.init is not None:
+                self._walk_collect_names(node.init, names)
+            if node.var_type is not None:
+                self._walk_collect_names(node.var_type, names)
+            return
+        # Collect AssignStmt LHS names
+        if isinstance(node, AssignStmt):
+            if isinstance(node.lhs, IdentifierExpr):
+                names.add(node.lhs.name)
+            self._walk_collect_names(node.lhs, names)
+            self._walk_collect_names(node.rhs, names)
             return
         # dataclass or other object with __dict__
         if hasattr(node, "__dataclass_fields__"):
@@ -776,6 +1123,9 @@ class CCodeGenerator:
     # ------------------------------------------------------------------
 
     def _gen_assign(self, stmt: AssignStmt) -> str:
+        # Track variable widths from assignments
+        self._track_width_from_assign(stmt)
+
         # FieldIndexExpr on LHS → switch/case assignment
         if isinstance(stmt.lhs, FieldIndexExpr):
             return self._gen_field_index_assign(stmt)
@@ -796,6 +1146,26 @@ class CCodeGenerator:
             return f"BITFIELD_SET({base}, {stmt.lhs.hi_bit}, {stmt.lhs.lo_bit}, {rhs});"
 
         return f"{lhs} = {rhs};"
+
+    def _track_width_from_assign(self, stmt: "AssignStmt") -> None:
+        """Infer variable bit-width from the assignment statement."""
+        # Case 1: LHS is x[hi:lo] = rhs → x has width hi-lo+1
+        if isinstance(stmt.lhs, BitSliceExpr) and isinstance(stmt.lhs.base, IdentifierExpr):
+            w = stmt.lhs.hi_bit - stmt.lhs.lo_bit + 1
+            self._track_var_width(stmt.lhs.base.name, w)
+            return
+        # Case 2: LHS is plain variable, RHS is BITFIELD_GET (BitSliceExpr)
+        if isinstance(stmt.lhs, IdentifierExpr):
+            if isinstance(stmt.rhs, BitSliceExpr):
+                w = stmt.rhs.hi_bit - stmt.rhs.lo_bit + 1
+                self._track_var_width(stmt.lhs.name, w)
+                return
+            # Case 3: RHS is ConcatExpr → sum of known part widths
+            if isinstance(stmt.rhs, ConcatExpr):
+                w = self._get_bit_width(stmt.rhs)
+                if w is not None:
+                    self._track_var_width(stmt.lhs.name, w)
+                return
 
     def _gen_compound_assign(self, stmt: CompoundAssignStmt) -> str:
         lhs = self._gen_expr(stmt.lhs)
@@ -840,6 +1210,12 @@ class CCodeGenerator:
                 init_val = self._gen_expr(stmt.init)
                 return f"{stmt.name} = {init_val};"
             return f"/* {stmt.name} already declared static */;"
+        # cross-function global variable → only emit assignment (no local decl)
+        if hasattr(self, '_cross_func_vars') and stmt.name in self._cross_func_vars:
+            if stmt.init:
+                init_val = self._gen_expr(stmt.init)
+                return f"{stmt.name} = {init_val};"
+            return f"/* {stmt.name} is global */;"
 
         self._declared_vars.add(stmt.name)
         ct = self._type_to_c(stmt.var_type) if stmt.var_type else "uint32_t"
@@ -854,7 +1230,7 @@ class CCodeGenerator:
 
     def _gen_table_read(self, stmt: TableReadStmt) -> str:
         """DsMac = DsMac Table[idx] → entry copy (variable declared at function top)."""
-        idx = self._gen_expr(stmt.index)
+        idx = self._gen_table_index(stmt.table_name, stmt.index)
         actual_table = _TABLE_ALIASES.get(stmt.table_name, stmt.table_name)
         return (
             f"memcpy(&{stmt.target_var}, &{actual_table}_mem[{idx}], "
@@ -863,7 +1239,6 @@ class CCodeGenerator:
 
     def _gen_table_write(self, stmt: TableWriteStmt) -> str:
         """update Table using value at index."""
-        idx = self._gen_expr(stmt.index)
         val = self._gen_expr(stmt.value)
         actual_table = _TABLE_ALIASES.get(stmt.table_name, stmt.table_name)
         sym = self.symtab.lookup(actual_table)
@@ -874,9 +1249,26 @@ class CCodeGenerator:
                     if self.symtab.lookup(candidate):
                         actual_table = candidate
                         break
+        idx = self._gen_table_index(actual_table, stmt.index)
         return (
             f"memcpy(&{actual_table}_mem[{idx}], &{val}, sizeof({actual_table}_entry_t));"
         )
+
+    def _gen_table_index(self, table_name: str, index_expr: Expr) -> str:
+        """Generate a C expression for a table memory index.
+        
+        Handles ConcatExpr indices for multi-way set-associative tables
+        (e.g. DsMac with {hash, way}) by computing the correct bit shift
+        from the table structure.
+        """
+        if isinstance(index_expr, ConcatExpr) and len(index_expr.parts) == 2:
+            way_bits = self._infer_table_way_bits(table_name)
+            if way_bits > 0:
+                part0 = self._gen_expr(index_expr.parts[0])
+                part1 = self._gen_expr(index_expr.parts[1])
+                return f"((uint64_t)({part0}) << {way_bits}) | ({part1})"
+        # Fall back to generic expression generation
+        return self._gen_expr(index_expr)
 
     # ------------------------------------------------------------------
     # Delay
@@ -966,11 +1358,7 @@ class CCodeGenerator:
     def _gen_expr(self, expr: Expr) -> str:
         """Translate an AST expression to a C expression string."""
         if isinstance(expr, IdentifierExpr):
-            name = expr.name
-            # Apply typo corrections
-            if name in _NAME_CORRECTIONS:
-                name = _NAME_CORRECTIONS[name]
-            return name
+            return self._resolve_name(expr.name)
         if isinstance(expr, IntLiteral):
             return str(expr.value)
         if isinstance(expr, HexLiteral):
@@ -1178,23 +1566,39 @@ class CCodeGenerator:
     # ------------------------------------------------------------------
 
     def _gen_concat(self, expr: ConcatExpr) -> str:
-        """{a, b, c} → ((a) << N) | ((b) << M) | (c)."""
+        """{a, b, c} → ((a) << N) | ((b) << M) | (c).
+        
+        Shift amounts are determined by the bit-widths of the right-side parts.
+        When widths are unknown for a part, defaults to 8 (byte-level concat).
+        """
         if not expr.parts:
             return "0"
         parts: List[str] = []
+        part_widths: List[int] = []  #  bit widths of each part (0 = unknown)
         for p in expr.parts:
             if isinstance(p, RangeExpr):
-                s = self._gen_expr(p.start)
-                e = self._gen_expr(p.end)
-                parts.append(f"CONCAT_RANGE({s}, {e})")
+                # Try to expand static range: PacketByte0..PacketByte5 → individual bytes
+                expanded = self._expand_range(p)
+                if expanded is not None:
+                    parts.extend(expanded)
+                    part_widths.extend([8] * len(expanded))  # each byte is 8 bits
+                else:
+                    parts.append(self._gen_dynamic_range(p))
+                    part_widths.append(0)  # unknown width
             else:
                 parts.append(self._gen_expr(p))
+                w = self._get_bit_width(p)
+                part_widths.append(w if w is not None else 0)
         if len(parts) == 1:
             return parts[0]
         result = parts[-1]
         shift = 0
-        for p in reversed(parts[:-1]):
-            shift += 8
+        for i, p in enumerate(reversed(parts[:-1])):
+            part_idx = len(parts) - 2 - i
+            pw = part_widths[part_idx + 1] if part_idx + 1 < len(part_widths) else 0
+            # Use actual width if known, otherwise default to byte-level (8)
+            w = pw if pw > 0 else 8
+            shift += w
             result = f"((uint64_t)({p}) << {shift}) | ({result})"
         return result
 
@@ -1228,3 +1632,56 @@ class CCodeGenerator:
         s = self._gen_expr(expr.start)
         e = self._gen_expr(expr.end)
         return f"/* range {s}..{e} */"
+
+    def _expand_range(self, expr: "RangeExpr") -> "Optional[List[str]]":
+        """
+        Try to expand a RangeExpr into individual byte parts.
+        
+        Handles:
+          PacketByte0..PacketByte5  → ["PacketByte[0]", "PacketByte[1]", ..., "PacketByte[5]"]
+          PacketByte[offset+12]..PacketByte[offset+15] → None (dynamic, use _gen_dynamic_range)
+          
+        Returns None if expansion is not possible (dynamic range).
+        """
+        s_idx = None
+        e_idx = None
+        
+        # Check if start is a static PacketByte<N>
+        if isinstance(expr.start, IdentifierExpr):
+            s_idx = self._is_packet_byte_index(expr.start.name)
+        elif isinstance(expr.start, IntLiteral):
+            s_idx = expr.start.value
+        
+        # Check if end is a static PacketByte<N>
+        if isinstance(expr.end, IdentifierExpr):
+            e_idx = self._is_packet_byte_index(expr.end.name)
+        elif isinstance(expr.end, IntLiteral):
+            e_idx = expr.end.value
+        
+        if s_idx is not None and e_idx is not None and s_idx <= e_idx:
+            return [f"PacketByte[{i}]" for i in range(s_idx, e_idx + 1)]
+        
+        return None
+
+    def _gen_dynamic_range(self, expr: "RangeExpr") -> str:
+        """
+        Generate code for a dynamic range like PacketByte[offset+12]..PacketByte[offset+15].
+        Extracts the index expressions and calls _concat_range(start_idx, end_idx).
+        """
+        def _extract_index(e):
+            """Extract the index expression from PacketByte[...] BitIndexExpr."""
+            from compiler.parser.ast_nodes import BitIndexExpr, IdentifierExpr
+            if isinstance(e, BitIndexExpr):
+                base = e.base
+                if isinstance(base, IdentifierExpr) and base.name == "PacketByte":
+                    return self._gen_expr(e.index)
+            # Try to resolve identifier to PacketByte[N]
+            if isinstance(e, IdentifierExpr):
+                idx = self._is_packet_byte_index(e.name)
+                if idx is not None:
+                    return str(idx)
+            return self._gen_expr(e)
+        
+        start_idx = _extract_index(expr.start)
+        end_idx = _extract_index(expr.end)
+        return f"_concat_range({start_idx}, {end_idx})"
