@@ -43,3 +43,10 @@ gcc tb.c output.c -o tb.exe -std=c99 -w -fcommon
 cd C:\Users\91383\Desktop\tsn\compiler\output\005
 gcc tb.c output.c -o tb.exe -std=c99 -w -fcommon
 .\tb.exe
+
+
+cd c:\Users\91383\Desktop\tsn\compiler\output\008\c_project
+
+gcc ..\..\test_framework\tb_new.c ..\..\test_framework\switch_api.c src\8m_common.c src\8m_main.c src\8m_parser.c src\8m_switchX.c src\8m_egress.c -o tb_new.exe -std=c99 -w -fcommon -Iinclude -I..\..\test_framework
+
+.\tb_new.exe
