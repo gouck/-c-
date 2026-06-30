@@ -18,3 +18,12 @@ git checkout v1.4
 cd C:\Users\91383\Desktop\tsn\compiler\output
 gcc tb.c output.c -o tb.exe -std=c99 -w -fcommon
 .\tb.exe
+
+
+cd output/c_project
+gcc src/tb.c src/8m_common.c src/8m_main.c src/8m_parser.c src/8m_switchX.c src/8m_egress.c -o tb.exe -std=c99 -w -fcommon -Iinclude
+.\tb.exe
+
+cd output\002\c_project
+gcc tb.c output.c -o tb.exe -std=c99 -w -fcommon
+.\tb.exe

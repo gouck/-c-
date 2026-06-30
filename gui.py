@@ -447,10 +447,19 @@ class CompilerGUI:
     def _compile_done(self, log_text: str) -> None:
         """编译完成回调（主线程）。"""
         self._log(log_text)
-        out_dir = self._out_var.get().strip()
-        files_info = []
+        base_dir = self._out_var.get().strip()
+        # 找到最新编号目录
+        actual_dir = base_dir
+        if os.path.isdir(base_dir):
+            subdirs = [d for d in os.listdir(base_dir)
+                       if os.path.isdir(os.path.join(base_dir, d)) and d.isdigit()]
+            if subdirs:
+                latest = sorted(subdirs, key=int)[-1]
+                actual_dir = os.path.join(base_dir, latest)
+        out_dir = actual_dir
+        files_info = [f"输出目录: {out_dir}"]
 
-        # 列出传统输出文件
+        # 列出输出文件
         for name in ["reg_drv.h", "reg_drv.c", "output.c",
                      "reg_drv_common.h", "reg_drv_tinyReg.h", "reg_drv_tinyReg2.h"]:
             fpath = os.path.join(out_dir, name)

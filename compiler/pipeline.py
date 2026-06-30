@@ -50,13 +50,20 @@ class CompilerPipeline:
     ) -> None:
         self.spec_path: str = spec_path
         self.reg_paths: list = reg_paths
-        self.output_dir: str = output_dir
         self.target: str = target
         self.verbose: bool = verbose
         self.h_files: list = h_files or []
         self.c_files: list = c_files or [spec_path]
         self.project_mode: bool = project_mode
         self.merge_only: bool = merge_only
+
+        # 自动编号：output/ → output/001/, output/002/, ...
+        os.makedirs(output_dir, exist_ok=True)
+        existing = [d for d in os.listdir(output_dir)
+                     if os.path.isdir(os.path.join(output_dir, d)) and d.isdigit()]
+        next_num = max([int(d) for d in existing] + [0]) + 1
+        self.output_dir: str = os.path.join(output_dir, f"{next_num:03d}")
+        self._run_number: int = next_num
 
         # intermediate results
         self.reg_data: Optional[Dict] = None
