@@ -65,11 +65,13 @@ class CompilerGUI:
 
     def __init__(self) -> None:
         self.root = tk.Tk()
-        self.root.title("八米编译器 v1.0")
-        self.root.geometry("860x700")
-        self.root.minsize(700, 500)
+        self.root.title("八米编译器 v2.0")
+        self.root.geometry("860x750")
+        self.root.minsize(700, 550)
         self._log_buffer: StringIO = StringIO()
-        _ensure_source_files()  # exe 首次运行时释放源文件
+        # 编译模式: "project" | "merged" | "single"，默认工程模式
+        self._compile_mode = tk.StringVar(value="project")
+        _ensure_source_files()
         self._build_ui()
         self._refresh_ext_list()
 
@@ -84,17 +86,37 @@ class CompilerGUI:
         main.pack(fill=tk.BOTH, expand=True)
 
         # ── 标题 ──
-        title = ttk.Label(main, text="八米编译器 v1.0", font=("Microsoft YaHei", 16, "bold"))
+        title = ttk.Label(main, text="八米编译器 v2.0", font=("Microsoft YaHei", 16, "bold"))
         title.pack(pady=(0, 10))
+
+        # ── 模式切换（三选一，默认工程模式）──
+        mode_frame = ttk.LabelFrame(main, text=" 编译模式 ", padding="8")
+        mode_frame.pack(fill=tk.X, pady=(0, 8))
+        ttk.Radiobutton(mode_frame, text="工程模式 — 多文件输出（推荐）",
+                        variable=self._compile_mode, value="project",
+                        command=self._on_mode_changed).pack(anchor=tk.W, pady=2)
+        ttk.Radiobutton(mode_frame, text="工程模式 — 合并为单文件 output.c",
+                        variable=self._compile_mode, value="merged",
+                        command=self._on_mode_changed).pack(anchor=tk.W, pady=2)
+        ttk.Radiobutton(mode_frame, text="单文件模式 — 传统 .c 文件输入",
+                        variable=self._compile_mode, value="single",
+                        command=self._on_mode_changed).pack(anchor=tk.W, pady=2)
 
         # ── 输入文件区 ──
         file_frame = ttk.LabelFrame(main, text=" 输入文件 ", padding="8")
         file_frame.pack(fill=tk.X, pady=(0, 8))
 
         # spec 文件行
-        self._build_file_row(file_frame, "Spec 文件:", 0,
-                             default=_get_default_path("8mSpec_0821.c"),
-                             callback=self._browse_spec)
+        self._spec_frame = ttk.Frame(file_frame)
+        self._spec_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(self._spec_frame, text="Spec 文件:", width=10).pack(side=tk.LEFT)
+        self._spec_var = tk.StringVar(value=_get_default_path("8mSpec_0821.c"))
+        self._spec_entry = ttk.Entry(self._spec_frame, textvariable=self._spec_var)
+        self._spec_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        self._spec_btn = ttk.Button(self._spec_frame, text="浏览...", command=self._browse_spec)
+        self._spec_btn.pack(side=tk.RIGHT)
+        # 工程模式下的 spec 标签
+        self._spec_label = ttk.Label(self._spec_frame, text="Spec 文件:", width=10)
 
         # reg 文件区 — 改为多文件选择
         reg_row = ttk.Frame(file_frame)
@@ -195,11 +217,29 @@ class CompilerGUI:
     # 文件浏览回调
     # ==================================================================
 
+    def _on_mode_changed(self) -> None:
+        """编译模式切换时更新界面。"""
+        mode = self._compile_mode.get()
+        if mode == "single":
+            self._spec_label.config(text="Spec 文件:")
+            self._spec_var.set(_get_default_path("8mSpec_0821.c"))
+            self._spec_btn.config(command=self._browse_spec)
+        else:
+            self._spec_label.config(text="工程目录:")
+            self._spec_var.set(_get_default_path("text") or "")
+            self._spec_btn.config(command=self._browse_spec_dir)
+
     def _browse_spec(self) -> None:
         path = filedialog.askopenfilename(
             title="选择 Spec 文件",
             filetypes=[("C/伪C 文件", "*.c *.txt"), ("所有文件", "*.*")]
         )
+        if path:
+            self._spec_var.set(os.path.normpath(path))
+
+    def _browse_spec_dir(self) -> None:
+        """工程模式：选择伪代码工程目录。"""
+        path = filedialog.askdirectory(title="选择伪代码工程目录")
         if path:
             self._spec_var.set(os.path.normpath(path))
 
@@ -367,7 +407,32 @@ class CompilerGUI:
         """后台编译线程。"""
         try:
             from compiler.pipeline import CompilerPipeline
-            pipeline = CompilerPipeline(spec, reg_list, out_dir, "c", True)
+            from compiler.main import _resolve_spec_files
+
+            mode = self._compile_mode.get()
+
+            if mode in ("project", "merged"):
+                h_files, c_files = _resolve_spec_files(spec)
+                pipeline = CompilerPipeline(
+                    spec_path=spec,
+                    reg_paths=reg_list,
+                    output_dir=out_dir,
+                    target="c",
+                    verbose=True,
+                    h_files=h_files,
+                    c_files=c_files,
+                    project_mode=True,
+                    merge_only=(mode == "merged"),
+                )
+            else:
+                pipeline = CompilerPipeline(
+                    spec_path=spec,
+                    reg_paths=reg_list,
+                    output_dir=out_dir,
+                    target="c",
+                    verbose=True,
+                )
+
             old_stdout = sys.stdout
             sys.stdout = self._log_buffer = StringIO()
             pipeline.run()
@@ -382,14 +447,35 @@ class CompilerGUI:
     def _compile_done(self, log_text: str) -> None:
         """编译完成回调（主线程）。"""
         self._log(log_text)
-        # 列出生成文件
         out_dir = self._out_var.get().strip()
         files_info = []
-        for name in ["reg_drv.h", "reg_drv.c", "output.c"]:
+
+        # 列出传统输出文件
+        for name in ["reg_drv.h", "reg_drv.c", "output.c",
+                     "reg_drv_common.h", "reg_drv_tinyReg.h", "reg_drv_tinyReg2.h"]:
             fpath = os.path.join(out_dir, name)
             if os.path.isfile(fpath):
                 size = os.path.getsize(fpath)
                 files_info.append(f"  {fpath}  ({size} bytes)")
+
+        # 工程模式：列出 c_project 文件
+        proj_dir = os.path.join(out_dir, "c_project")
+        if os.path.isdir(proj_dir):
+            inc_dir = os.path.join(proj_dir, "include")
+            src_dir = os.path.join(proj_dir, "src")
+            if os.path.isdir(inc_dir):
+                files_info.append(f"\n─ 头文件 ({inc_dir}) ─")
+                for f in sorted(os.listdir(inc_dir)):
+                    fpath = os.path.join(inc_dir, f)
+                    if os.path.isfile(fpath):
+                        files_info.append(f"  {fpath}  ({os.path.getsize(fpath)} bytes)")
+            if os.path.isdir(src_dir):
+                files_info.append(f"\n─ 源文件 ({src_dir}) ─")
+                for f in sorted(os.listdir(src_dir)):
+                    fpath = os.path.join(src_dir, f)
+                    if os.path.isfile(fpath):
+                        files_info.append(f"  {fpath}  ({os.path.getsize(fpath)} bytes)")
+
         if files_info:
             self._log("✓ 编译完成! 生成文件:\n" + "\n".join(files_info))
         self._status_var.set("✓ 编译完成")

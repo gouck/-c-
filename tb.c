@@ -18,7 +18,7 @@
 
 uint8_t  PacketByte[512];
 
-#include Copy-Item tb.c output/tb.c -Force; Push-Location output; gcc tb.c output.c -o tb.exe -std=c99 -w -fcommon; .\tb.exe; Pop-Location"reg_drv_common.h"
+#include "reg_drv_common.h"
 #include "reg_drv_tinyReg.h"
 #include "reg_drv_tinyReg2.h"
 

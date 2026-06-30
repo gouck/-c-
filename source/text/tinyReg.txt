@@ -1,0 +1,162 @@
+FileName	Prefix	AddrUpper	AddrLower	FlopInput
+tinyReg	TINY_	17	2	Y
+
+RegMem	FullName	NumOfEntries	Words	MemAddrBits	DecodeAddress	Description
+DsMac	DsMac	2048	1	11	16'b00_100?_????_????_??	DsMac RamTable
+DsMacAging	DsMacAging	512	1	9	16'b00_1100_0???_????_??	DsMacAging RamTable
+DsMacKey	DsMacKey	512	8	9	16'b01_00??_????_????_??	DsMacKey RamTable
+DsMacStatic	DsMacStatic	512	1	9	16'b01_0100_0???_????_??	DsMacStatic RamTable
+DsMacValid	DsMacValid	512	1	9	16'b01_1000_0???_????_??	DsMacValid RamTable
+DsPort	DsPort	8	4	3	16'b01_1100_0000_0???_??	DsPort RamTable
+DsStormCtrl	DsStormCtrl	32	4	5	16'b10_0000_000?_????_??	DsStormCtrl RamTable
+DsVlan	DsVlan	16	2	4	16'b10_0100_0000_0???_??	DsVlan RamTable
+
+MemRegFields	DsMac
+Fields	Offset	HiBit	LoBit	ReadTrigger	WriteTrigger	Description
+destMap	0	9	0	Y	N	destMap field
+destDiscard	0	10	10	N	N	destDiscard field
+isMcast	0	11	11	N	N	isMcast field
+prior	0	13	12	N	Y	prior field
+
+MemRegFields	DsMacAging
+Fields	Offset	HiBit	LoBit	ReadTrigger	WriteTrigger	Description
+aging0	0	1	0	Y	N	aging0 field
+aging1	0	3	2	N	N	aging1 field
+aging2	0	5	4	N	N	aging2 field
+aging3	0	7	6	N	Y	aging3 field
+
+MemRegFields	DsMacKey
+Fields	Offset	HiBit	LoBit	ReadTrigger	WriteTrigger	Description
+fid0	0	11	0	Y	N	fid0 field
+mac0Addr47To32	0	31	16	N	N	mac0Addr47To32 field
+mac0Addr31To0	1	31	0	N	N	mac0Addr31To0 field
+fid1	2	11	0	N	N	fid1 field
+mac1Addr47To32	2	31	16	N	N	mac1Addr47To32 field
+mac1Addr31To0	3	31	0	N	N	mac1Addr31To0 field
+fid2	4	11	0	N	N	fid2 field
+mac2Addr47To32	4	31	16	N	N	mac2Addr47To32 field
+mac2Addr31To0	5	31	0	N	N	mac2Addr31To0 field
+fid3	6	11	0	N	N	fid3 field
+mac3Addr47To32	6	31	16	N	N	mac3Addr47To32 field
+mac3Addr31To0	7	31	0	N	Y	mac3Addr31To0 field
+
+MemRegFields	DsMacStatic
+Fields	Offset	HiBit	LoBit	ReadTrigger	WriteTrigger	Description
+static	0	3	0	Y	Y	static field
+
+MemRegFields	DsMacValid
+Fields	Offset	HiBit	LoBit	ReadTrigger	WriteTrigger	Description
+valid	0	3	0	Y	Y	valid field
+
+MemRegFields	DsPort
+Fields	Offset	HiBit	LoBit	ReadTrigger	WriteTrigger	Description
+portVid	0	11	0	Y	N	portVid field
+dot1qBasedVlan	0	12	12	N	N	dot1qBasedVlan field
+aft	0	14	13	N	N	aft field
+keepVlanTag	0	15	15	N	N	keepVlanTag field
+portMacHi	0	31	16	N	N	portMacHi field
+portMacLo	1	31	0	N	N	portMacLo field
+allowBrg2Src	3	0	0	N	N	allowBrg2Src field
+lrnDisable	3	1	1	N	N	lrnDisable field
+prior	3	3	2	N	N	prior field
+rmaMode	3	4	4	N	N	rmaMode field
+mirrorEn	3	5	5	N	N	mirrorEn field
+updateMacSa	3	6	6	N	N	updateMacSa field
+strictPvid	3	7	7	N	Y	strictPvid field
+
+MemRegFields	DsStormCtrl
+Fields	Offset	HiBit	LoBit	ReadTrigger	WriteTrigger	Description
+enable	0	0	0	Y	N	enable field
+usePkt	0	1	1	N	N	usePkt field
+cntThrd	1	31	0	N	N	cntThrd field
+counter	2	31	0	N	N	counter field
+step	3	31	0	N	Y	step field
+
+MemRegFields	DsVlan
+Fields	Offset	HiBit	LoBit	ReadTrigger	WriteTrigger	Description
+fid	0	11	0	Y	N	fid field
+vlanBmp	0	21	12	N	N	vlanBmp field
+untagFlag	0	31	22	N	N	untagFlag field
+leakyUcast	1	0	0	N	N	leakyUcast field
+leakyMcast	1	1	1	N	N	leakyMcast field
+leakyBcast	1	2	2	N	N	leakyBcast field
+leakyArp	1	3	3	N	N	leakyArp field
+leakyMirror	1	4	4	N	N	leakyMirror field
+egressFilter	1	5	5	N	N	egressFilter field
+dot1qPriorEn	1	6	6	N	N	dot1qPriorEn field
+mirrorEn	1	7	7	N	N	mirrorEn field
+prior	1	9	8	N	Y	prior field
+
+Register	FullName	Words	DecodeAddress	Description
+L2AgingCtl	L2AgingCtl	2	16'b10_1000_0000_0000_0?	L2AgingCtl register
+L2LearnCtl	L2LearnCtl	1	16'b10_1000_0000_1000_00	L2LearnCtl register
+LoopDetectCtl	LoopDetectCtl	3	16'b10_1000_0001_0000_??	LoopDetectCtl register
+MirrorCtl	MirrorCtl	1	16'b10_1000_0001_1000_00	MirrorCtl register
+PriorAssignCtl	PriorAssignCtl	17	16'b10_1000_0010_0???_??	PriorAssignCtl register
+StormCfgCtl	StormCfgCtl	2	16'b10_1000_0010_1000_0?	StormCfgCtl register
+VlanIdCamCtl	VlanIdCamCtl	8	16'b10_1000_0011_000?_??	VlanIdCamCtl register
+
+Fields	Offset	HiBit	LoBit	ReadOnly	ReadIndicate	WriteIndicate	WriteOneIndicate	Description	L2AgingCtl
+fastAgingEn	0	0	0	N	N	N	N	fastAgingEn register	0
+agingEn	0	1	1	N	N	N	N	agingEn register	1
+fastAgingAll	0	2	2	N	N	N	N	fastAgingAll register	1
+fastAgingByPort	0	3	3	N	N	N	N	fastAgingByPort register	0
+portId	0	7	4	N	N	N	N	portId register	4'b0
+cycleThrd	1	31	0	N	N	N	N	cycleThrd register	32'b0
+
+Fields	Offset	HiBit	LoBit	ReadOnly	ReadIndicate	WriteIndicate	WriteOneIndicate	Description	L2LearnCtl
+sysLearnNum	0	15	0	N	N	N	N	sysLearnNum register	16'b0
+lruEn	0	16	16	N	N	N	N	lruEn register	1'b0
+
+Fields	Offset	HiBit	LoBit	ReadOnly	ReadIndicate	WriteIndicate	WriteOneIndicate	Description	LoopDetectCtl
+en	0	0	0	N	N	N	N	en register	0
+ttl	0	7	4	N	N	N	N	ttl register	4'b0
+loopMacHi	0	31	16	N	N	N	N	loopMacHi register	16'b0
+loopMacLo	1	31	0	N	N	N	N	loopMacLo register	32'b0
+detectInterval	2	31	0	N	N	N	N	detectInterval register	32'b0
+
+Fields	Offset	HiBit	LoBit	ReadOnly	ReadIndicate	WriteIndicate	WriteOneIndicate	Description	MirrorCtl
+srcMirrorPort	0	3	0	N	N	N	N	srcMirrorPort register	4'b0
+vlanMirrorPort	0	7	4	N	N	N	N	vlanMirrorPort register	4'b0
+
+Fields	Offset	HiBit	LoBit	ReadOnly	ReadIndicate	WriteIndicate	WriteOneIndicate	Description	PriorAssignCtl
+ipDscpEn	0	0	0	N	N	N	N	ipDscpEn register	1'b0
+ipAddrEn	0	1	1	N	N	N	N	ipAddrEn register	1'b0
+macDaEn	0	2	2	N	N	N	N	macDaEn register	1'b0
+rldpEn	0	3	3	N	N	N	N	rldpEn register	1'b0
+rldpPrior	0	5	4	N	N	N	N	rldpPrior register	2'b0
+dscpWeight	0	7	6	N	N	N	N	dscpWeight register	2'b0
+vlanWeight	0	9	8	N	N	N	N	vlanWeight register	2'b0
+portWeight	0	11	10	N	N	N	N	portWeight register	2'b0
+ip0AddrPrior	0	13	12	N	N	N	N	ip0AddrPrior register	2'b0
+ip1AddrPrior	0	15	14	N	N	N	N	ip1AddrPrior register	2'b0
+ip0AddrBit127To96	1	31	0	N	N	N	N	ip0AddrBit127To96 register	32'b0
+ip0MaskBit127To96	3	31	0	N	N	N	N	ip0MaskBit127To96 register	32'b0
+ip1AddrBit127To96	5	31	0	N	N	N	N	ip1AddrBit127To96 register	32'b0
+ip1MaskBit127To96	7	31	0	N	N	N	N	ip1MaskBit127To96 register	32'b0
+ip0AddrBit95To64	9	31	0	N	N	N	N	ip0AddrBit95To64 register	32'b0
+ip0MaskBit95To64	11	31	0	N	N	N	N	ip0MaskBit95To64 register	32'b0
+ip1AddrBit95To64	13	31	0	N	N	N	N	ip1AddrBit95To64 register	32'b0
+ip1MaskBit95To64	15	31	0	N	N	N	N	ip1MaskBit95To64 register	32'b0
+
+Fields	Offset	HiBit	LoBit	ReadOnly	ReadIndicate	WriteIndicate	WriteOneIndicate	Description	StormCfgCtl
+enable	0	0	0	N	N	N	N	enable register	1'b0
+delayInterval	1	31	0	N	N	N	N	delayInterval register	32'b0
+
+Fields	Offset	HiBit	LoBit	ReadOnly	ReadIndicate	WriteIndicate	WriteOneIndicate	Description	VlanIdCamCtl
+vlanId0	0	11	0	N	N	N	N	vlanId0 register	12'b0
+vlanId1	0	23	12	N	N	N	N	vlanId1 register	12'b0
+vlanId2	1	11	0	N	N	N	N	vlanId2 register	12'b0
+vlanId3	1	23	12	N	N	N	N	vlanId3 register	12'b0
+vlanId4	2	11	0	N	N	N	N	vlanId4 register	12'b0
+vlanId5	2	23	12	N	N	N	N	vlanId5 register	12'b0
+vlanId6	3	11	0	N	N	N	N	vlanId6 register	12'b0
+vlanId7	3	23	12	N	N	N	N	vlanId7 register	12'b0
+vlanId8	4	11	0	N	N	N	N	vlanId8 register	12'b0
+vlanId9	4	23	12	N	N	N	N	vlanId9 register	12'b0
+vlanId10	5	11	0	N	N	N	N	vlanId10 register	12'b0
+vlanId11	5	23	12	N	N	N	N	vlanId11 register	12'b0
+vlanId12	6	11	0	N	N	N	N	vlanId12 register	12'b0
+vlanId13	6	23	12	N	N	N	N	vlanId13 register	12'b0
+vlanId14	7	11	0	N	N	N	N	vlanId14 register	12'b0
+vlanId15	7	23	12	N	N	N	N	vlanId15 register	12'b0

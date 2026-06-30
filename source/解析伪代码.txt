@@ -1,0 +1,406 @@
+uint8 PacketByte[];
+uint8 piSrcPort[2:0] = channelId[2:0];
+uint16 piPktLength[11:0] = packetLength[11:0];
+以上三个变量为输入变量，分别是 数据包字节数组  源端口号（3bit，支持8端口）   包长度
+
+struct ParserResult{
+	uint48 macDa;
+	uint48 macSa;
+	uint3  vlanPrior;
+	uint12 vlanId;
+	uint2  vlanTagged;
+	bool   isLoopDetection;
+	uint4  loopTtl;
+	bool   isArp;
+	bool   isIpv4;
+	bool   isIpv6;
+	uint8  ipDscp;
+	bool   isUnknownPkt;
+}
+
+macDa/macSa	48bit	目的/源 MAC 地址
+vlanPrior/vlanId	3/12bit	VLAN 优先级/ID
+isLoopDetection	bool	是否为环路检测包（EtherType=0x8899）
+isArp/isIpv4/isIpv6	bool	三层协议类型
+ipDscp	8bit	IP DSCP 优先级字段
+
+
+
+
+parser模块 
+1输入 原始以太网帧的字节阻
+
+	prMacDa[47:0] = {PacketByte0, ..., PacketByte5}; 提取目的mac
+	prMacSa[47:0] = {PacketByte6, ..., PacketByte11};提取源mac
+
+	giTpid[15:0] = {PacketByte12, PacketByte13};类型 长度字段读取
+	giPldOffset[7:0] = 14;载荷的起始偏移
+
+2
+if( giTpid == 0x8100 || giTpid == 0x9100 || giTpid == 0x88a8 ) {
+    //   ↑ 802.1Q          ↑ 802.1Q(私有)     ↑ 802.1ad(运营商双层tag)
+剥出第一层 VLAN 标签的字段。
+
+3
+判断是arp报文 ipv4报文还是ipv6报文
+ 0x0806 / 0x8035 → ARP/RARP    0x0800 → IPv4 0x86dd → IPv6 0x8899  → 环路检测包
+  
+  ┌─ 0x8899  → 环路检测包
+  │   prLoopTtl        = PacketByte[offset+3][3:0]
+  │   prIsLoopDetection = 1 判断是否成环
+  │
+  ├─ 0x0806 / 0x8035 → ARP/RARP
+  │   prIsArp = 1 arp知道ip地址 rarp知道mac地址 承认arp rarp包要被广播
+  │
+  ├─ 0x0800 → IPv4
+  │   prIsIpv4    = 1 知道是ipv4的包 方便switchx 查dscp优先级
+  │   prIpDscp    = PacketByte[offset+1][7:2]     ← DSCP 优先级 
+  │   prIpSa      = PacketByte[offset+12..+15]     ← 源 IP
+  │   prIpDa      = PacketByte[offset+16..+19]     ← 目的 IP
+  │
+  ├─ 0x86dd → IPv6
+  │   prIsIpv6    = 1
+  │   prIpDscp    = PacketByte[offset][3:0] + [offset+1][7:6]
+  │   prIpSa      = PacketByte[offset+8..+23]     ← 128位 源 IP
+  │   prIpDa      = PacketByte[offset+24..+39]    ← 128位 目的 IP
+  │
+  └─ 其他 → 未知包
+      prIsUnknownPkt = 1
+
+
+
+switchx模块
+1
+读dsport内存表
+	// 1 vlan assign
+	DsPort = DsPort Table[ piSrcPort ];  根据入端口号，从 8 条端口配置里取出属于这个端口的那一条
+	piPortVid[11:0] = DsPort.portVid; 端口的默认vid
+	pi1qBasedVlan = DsPort.dot1qBasedVlan; 是否启用 802.1Q VLAN 替换。=1 时：包自带 VLAN tag 且 VID ≠ 0 → 用包自带的 VID 而不是端口的 portVid。
+	piAft[1:0]	= DsPort.aft;  Acceptable Frame Type — 这个端口接受哪种帧。00	全接受 01	只接受有 tag 的 10	只接受无 tag 的 11	全丢弃
+	piLrnDisable = DsPort.lrnDisable; 送入包的mac地址不会计入mac地址表
+	piAllowBrg2Src = DsPort.allowBrg2Src;允许发回源端口。=0 时，包不会从进来的那个口再发出去（防止环）。
+	piPortPrior[1:0] = DsPort.prior[1:0];端口的默认优先级（0~3）。如果没有 VLAN/IP/DSCP 优先级覆盖，用这个端口级默认值参与 QoS 判决。
+	piRmaMode = DsPort.rmaMode;
+Reserved Multicast Address mode — 保留组播地址模式。=1 时，某些特定 MAC 地址（如 01-80-C2-00-00-xx）的包会被丢弃。
+协议地址       用途                   rmaMode=1 行为
+01-80-C2-00-00-00  STP(生成树)           丢弃（防止环路）
+01-80-C2-00-00-03  LACP(链路聚合)        丢弃
+01-80-C2-00-00-0E  LLDP(邻居发现)        丢弃
+	
+	piPortMirror = DsPort.mirrorEn; 端口镜像使能。=1 时，从这个端口进入的所有流量都要复制一份到镜像端口（第 6 步会把这个端口号加入 fwdBmp）。
+
+2
+	giVlanIdx[3:0] = 0; 当前vlanid
+	giVlanHit = 0;
+	for( i = 0; i < 16; i++ ) {
+		if( giVid == VlanIdCamCtl.vlanId{i} ) { 
+			giVlanIdx = i; 
+			giVlanHit = 1; 
+			break; 
+		}
+	}做vlanid匹配
+如果vlanid匹配成功
+	if( giVlanHit ) {
+		DsVlan = DsVlan Table[ giVlanIdx ]; 读dsvlan表格
+		piFwdBmp[15:0] = {6'b0, DsVlan.vlanBmp[9:0] }; 高六位补0 低10位vlan成员的位图 决定这个包能往哪些口转发。 vlanBmp 的每一位代表一个物理端口：bit0=端口0，bit1=端口1，...bit9=端口9。bit=1 表示该端口属于这个 VLAN。
+		piVlanMember[9:0] = DsVlan.vlanBmp; 保存原始 VLAN 成员位图，后续第 6 步做出口过滤时用。与 piFwdBmp 的区别：piFwdBmp 会被第 6 步修改（加镜像口、删源口），piVlanMember 保持不变作为"原始参考"。
+		piFid[11:0] = DsVlan.fid[11:0]; MAC 表查找的二级索引。 由于不同 VLAN 可能有相同的 MAC 地址，查 MAC 表时需要 {FID, MAC地址} 作为唯一 Key，而不是仅凭 MAC 地址。
+		pi1qPriorEn = DsVlan.dot1qPriorEn; 是否使用 VLAN tag 里的优先级字段。 如果关闭，VLAN 优先级不参与 QoS 加权判决。
+		Ds1qPriorMap = Ds1qPriorMap Table{ prVlanPrior };  // 读优先级映射表
+		piVlanPrior[1:0] = Ds1qPriorMap.prior[1:0];      // 取映射后的值
+		piUntagFlag[15:0] = { 6'b111111, DsVlan.untagFlag[9:0]}; 包从某个出口发出时是否需要剥掉 VLAN tag。 每一位对应一个端口：bit=1 表示出口时要剥 tag（去 VLAN 头），bit=0 保留 tag。高 6 位写死为 1 是因为芯片只有 10 个口。
+		piVlanMirror = DsVlan.mirrorEn; 这个 VLAN 的所有流量是否要复制一份到镜像端口。 用于抓包分析/监控。
+		piEgressFilter = DsVlan.egressFilter;   启用出口端口过滤。 如果=1，则包只能发给 VLAN 成员端口。如果端口不属于这个 VLAN，默认不发。但可以被下面的"泄漏"设置覆写。
+		piLeakyUcast = DsVlan.leakyUcast;  // 未知单播可以泄漏到非成员端口
+		piLeakyMcast = DsVlan.leakyMcast;  // 组播可以泄漏
+		piLeakyBcast = DsVlan.leakyBcast;  // 广播可以泄漏
+		piLeakyArp = DsVlan.leakyArp;  // ARP 包可以泄漏
+		piLeakyMirror = DsVlan.leakyMirror;   // 镜像包可以泄漏
+	} else {
+		piDiscard = 1;
+	}
+
+
+// aft
+	giVlanTagged = prExistVlan != 0 && prVlanId != 0;
+	switch( piAft ) {
+		case 2'b01: { 
+			piDiscard = !giVlanTagged;  只接受tag帧
+			break;
+		}
+		case 2'b10: {
+			piDiscard = giVlanTagged; 只接受不带tag的帧
+			break;
+		}
+		case 2'b11: { 
+			piDiscard = 1;全丢
+			break;
+		}
+		default: ;
+	}
+
+piAft	含义	行为
+00 (default)	全都接受	不丢弃
+01	只接受 tagged 帧	无 tag → 丢弃
+10	只接受 untagged 帧	有 tag → 丢弃
+11	全丢弃	无条件丢弃
+
+
+	// 2 L2 filtering and forwarding
+	piBcast = prMacDa == 0xFFFF_FFFF_FFFF; 发广播包
+	piMcast = !piBcast && prMacDa[40];
+
+
+
+L2 MAC 地址查表逻辑详解
+piBcast = prMacDa == 0xFFFF_FFFF_FFFF    → 广播 = 全 F 目的mac与源mac是否全是ffff
+piMcast = !piBcast && prMacDa[40]         → 组播 = 排除广播后，I/G 位 = 1
+（剩下的就是单播 → 既不是广播也不是组播）
+
+
+3
+前提条件是pidiscard有值  if( !piDiscard )
+第二步
+if( piMcast ) { 如果都是ffff
+    giFid[11:0] = giVid;      // 组播用 VLAN ID 做 FID
+} else {
+    giFid = piFid;             // 单播用精确 Filter ID
+}
+
+giHashIdx[8:0] = hash1( { giFid, prMacDa } );  读表Hash({12bit FID, 48bit MAC}) → 9bit 索引(0~511)
+		DsMacKey = DsMacKey Table[ giHashIdx ];  // 读取该桶的 Key 数组
+		DsMacValid = DsMacValid Table[ giHashIdx ]; // 读取该桶的有效位
+		piBrgHit = 0;
+		for( i = 0; i < 4; i++ ) {   // 遍历 4 个槽位
+			if( DsMacKey.{ fid[11:0], macAddr[47:0] } == { giFid, prMacDa }  // Key 匹配？
+			&& DsMacValid.valid[i] ) {     // 且槽位有效？
+				DsMacFwd =  DsMac Table[ (giHashIdx<<2)+i ]; // 命中就读转发信息表来自dsmac 没命中就泛红
+				piBrgHit = 1     // 命中！表示mac地址已经被匹配到 就是已知组波
+				break;
+			} 
+		}
+
+
+2.2 转发决策 + 风暴控制 —— 代码详解
+if( piBrgHit ) {                                       // 查到了 → 定向转发
+    piMacDaPrior[1:0] = DsMacFwd.prior[1:0];            // 从 MAC 表取优先级
+    
+    if( DsMacFwd.destDiscard ) {                        // 此 MAC 被标记为丢弃
+        piDiscard = 1;
+    } else {
+        piFwdBmp = {6'b0, DsMacFwd.destMap[9:0]};      // 转发到 destMap 指定的端口
+    }
+} else {
+    piFlooding = 1;                                      // 查不到 → 洪泛
+}
+
+if( piBcast ) {                         // 广播
+    giStormSubIdx = 3;
+} else if( piMcast && !piBrgHit ) {     // 未知组播（表里没有）
+    giStormSubIdx = 2;
+} else if( piMcast && piBrgHit ) {      // 已知组播（表里有）
+    giStormSubIdx = 1;
+} else if( !piMcast && !piBrgHit ) {    // 未知单播（表里没有）
+    giStormSubIdx = 0;
+}
+
+giStormCtlIdx = (piSrcPort<<2) + giStormSubIdx[1:0];
+		DsStormCtrl = DsStormCtrl Table[ giStormCtlIdx ];
+		独立限速
+前者按包数限速 后者按字节数限速
+		if( DsStormCtrl.enable ) {
+			is( DsStormCtrl.usePkt ) {
+				if( DsStormCtrl.counter[31:0] == 0 ) {
+					piDiscard = 1;
+				} else {
+					DsStormCtrl.counter--;
+				}
+			} else {
+				if( DsStormCtrl.counter < piPktLength ) {
+					piDiscard = 1;
+				} else {
+					DsStormCtrl.counter -= piPktLength;
+				}
+			}
+		}
+	}
+
+步骤 3：L2 MAC 地址学习 —— 详解 建立mac地址表
+
+if( !piLrnDisable && !piDiscard )  满足端口没有禁用学习和有包的时候学习
+
+if( !piLrnDisable  && !piDiscard ) {
+		giLrnHash[8:0] = hash1( {giFid, prMacSa} ); // 用源MAC+过滤ID算哈希
+		DsMacKey = DsMacKey Table[ giLrnHash ]; // 读该哈希桶的Key表
+		DsMacValid = DsMacValid Table[ giLrnHash ];// 读该哈希桶的有效位表
+		for( i = 0; i < 4; i++ ) {
+			if( DsMacKey.{ fid{i}, macAddr{i} } == { giFid, prMacSa } 
+			&& DsMacValid.valid[i] ) {
+				DsMacLrn = DsMac Table[ (giLrnHash<<2)+i ];
+				giLrnHit = 1;  // ← 找到了！这个源MAC已经学过
+				giLrnSubIdx = i;  // 记录在第几路（0~3）
+				break;
+			} else {
+				giLrnHit = 0; // 没找到
+			}
+		}
+		if( !giLrnHit ) {
+			giLrnNew = 0;
+			for( i = 0; i < 4; i++ ) {		// find one empty
+				if( !DsMacValid[ giLrnHash ].valid[i] ) {
+					giLrnNew = 1;
+					giLrnSubIdx = i;
+					break;
+				}
+			}
+		}
+		if( !giLrnHit && L2LearnCtl.lruEn ) {
+			DsMacAging = DsMacAging Table[ giLrnHash ];
+			giLruFlag[1:0] = 0;
+			for( i = 0; i < 4; i++ ) {		// find the oldest one
+				if( giLruFlag <= DsMacAging.aging{i} ) {
+					giLruFlag = DsMacAging.aging{i}
+					giLruLrn = 1;
+					giLrnSubIdx = i;
+				}
+			}
+		}
+新MAC要学习，哈希到桶 #100：
+
+情况1：有空位（giLrnNew=1）
+  valid[0]=1  valid[1]=0 ← 空！  valid[2]=1  valid[3]=1
+  直接用第1路 → 写入 valid[1]=1，sysLearnNum++
+
+情况2：全满 + 不启用LRU（giLrnNew=0, giLruLrn=0）
+  valid[0]=1  valid[1]=1  valid[2]=1  valid[3]=1
+  没空位，也不淘汰 → 学习失败（静默丢弃，不学这个MAC）
+
+情况3：全满 + 启用LRU（giLrnNew=0, giLruLrn=1）
+  valid[0]=1  valid[1]=1  valid[2]=1  valid[3]=1
+  没空位，但LRU打开 → 踢掉最老的那个，腾出位置
+
+// update tables 更新物理ram的mac地址
+		newDsMacKeyEntry = { prMacSa, giFid };
+		newDsMacEntry = { 1<<piSrcPort, 1'b0, 1'b0, 2'b00 };
+		if( giLrnHit ) {如果是老寄存器则重置老化 并且更新vid和mac地址
+			update DsMacLrn using newDsMacEntry at {giHashIdx, giLrnSubIdx};
+			DsMacAging[ giLrnHash ].aging{ giLrnSubIdx } = 0;
+		} else if( giLrnNew || giLruLrn ) {若是新的且开了LRU替换则换dsmac dsmackey dsmacvalid
+			update DsMacKey using newDsMacKeyEntry at { giLrnHash }.{ giLrnSubIdx };
+			update DsMac using newDsMacEntry at { giLrnHash, giLrnSubIdx };
+			DsMacAging[ giLrnHash ].aging{ giLrnSubIdx } = 0;
+			DsMacValid[ giLrnHash ].valid[ giLrnSubIdx ]  = 1	
+		}
+		if( giLrnNew ) {新增学习数
+			L2LearnCtl.sysLearnNum++;
+		}
+	}
+
+步骤 5：优先级分配（QoS Priority Assign）
+// 5 Priority assign
+	if( ( prIsIpv4 || prIsIpv6 ) && ( PriorAssignCtl.ipDscpEn ) ) {
+		DsDscpPriorMap = DsDscpPriorMap Table{ prIpDscp[5:0] };
+		piDscpPrior[1:0] = DsDscpPriorMap.prior[1:0];
+	}如果是ipv4或者ipv6格式则读dscp值 
+	if( PriorAssignCtl.ipAddrEn && ( prIsIpv4 || prIsIpv6 ) ) {ip地址匹配
+		giIpAddr0Seg[127:0] = PriorAssignCtl.ip0Addr[127:0] & PriorAssignCtl.ip0Mask[127:0];
+		giIpAddr1Seg[127:0] = PriorAssignCtl.ip1Addr[127:0] & PriorAssignCtl.ip1Mask[127:0];
+		if( ( giIpAddr0Seg == prIpSa & PriorAssignCtl.ip0Mask )
+		|| ( giIpAddr0Seg == prIpDa & PriorAssignCtl.ip0Mask ) ) {
+			piIpAddrPrior[1:0] = PriorAssignCtl.ip0AddrPrior[1:0];
+		} else if( ( giIpAddr1Seg == prIpSa & PriorAssignCtl.ip1Mask )
+		|| ( giIpAddr1Seg == prIpDa & PriorAssignCtl.ip1Mask ) ) {
+			piIpAddrPrior[1:0] = PriorAssignCtl.ip1AddrPrior[1:0];
+		}
+	}
+	if( PriorAssignCtl.rldpEn && prIsLoopDetection ) {
+		piPrior[1:0] = PriorAssignCtl.rldpPrior[1:0];
+	} else if( PriorAssignCtl.macDaEn ) {
+		piPrior = piMacDaPrior;
+	} else if( PriorAssignCtl.ipAddrEn ) {
+		piPrior = piIpAddrPrior;
+	} else {
+		if( ( PriorAssignCtl.portWeight[1:0] == PriorAssignCtl.vlanWeight[1:0] )
+		&& ( PriorAssignCtl.portWeight == PriorAssignCtl.dscpWeight[1:0] ) ) {
+			piPrior = Max( piPortPrior,  piVlanPrior, piDscpPrior );
+		} else {
+			// find the weightest priority
+			giVlanPriorAssigne = 0; giDscpPriorAssign = 0;
+			if( PriorAssignCtl.vlanWeight[1:0] >= PriorAssignCtl.portWeight[1:0] && PriorAssignCtl.vlanWeight[1:0] >= PriorAssignCtl.dscpWeight[1:0] ) {
+				giVlanPriorAssigne = 1;
+				giPriorWeight = PriorAssignCtl.vlanWeight;
+			} else if( PriorAssignCtl.dscpWeight[1:0] >= PriorAssignCtl.portWeight[1:0] && PriorAssignCtl.dscpWeight[1:0] >= PriorAssignCtl.vlanWeight[1:0] ) {
+				giPriorWeight = PriorAssignCtl.dscpWeight;
+				giDscpPriorAssign = 1;
+			}
+			// Does it exist equalization weight
+			if( giVlanPriorAssigne ) {
+				piPrior = piVlanPrior;
+				if( PriorAssignCtl.vlanWeight == PriorAssignCtl.portWeight ) {
+					piPrior = piVlanPrior >= piPortPrior ? piVlanPrior : piPortPrior;
+				} else if ( PriorAssignCtl.vlanWeight == PriorAssignCtl.dscpWeight ) {
+					piPrior = piVlanPrio >= piDscpPrior ? piVlanPrior : piDscpPrior;
+				}
+			} else if( giDscpPriorAssign ){
+				piPrior = piDscpPrior;
+				if( PriorAssignCtl.dscpWeight == PriorAssignCtl.portWeight ) {
+					piPrior = piDscpPrior >= piPortPrior ? piDscpPrior : piPortPrior;
+				} else if ( PriorAssignCtl.dscpWeight == PriorAssignCtl.vlanWeight ) {
+					piPrior = piDscpPrio >= piVlanPrior ? piDscpPrior : piVlanPrior ;
+				}
+			} else {
+				piPrior = piPortPrior;
+				if( PriorAssignCtl.portWeight == PriorAssignCtl.vlanWeight ) {
+					piPrior = piPortPrior >= piVlanPrior ? piPortPrior : piVlanPrior;
+				} else if( PriorAssignCtl.portWeight == PriorAssignCtl.dscpWeight ) {
+					piPrior = piPortPrior >= piDscpPrior ? piPortPrior: piDscpPrior;
+				}
+			}
+		}
+	}
+
+
+
+
+步骤 6：转发位图最终确定 —— 逐段解析
+// 6 forwarding bitmap determination
+	// Reserved Multicast Address mode
+	if( piMcast && ( prMacDa[47:8] == 0x0180c20000 ) ) {
+		switch( prMacDa[7:0] ) {
+			0x00: if( piRmaMode ) { piDiscard = 1; }
+			0x03: if( piRmaMode ) { piDiscard = 1; } 
+			0x0e: if( piRmaMode ) { piDiscard = 1; } 
+			0x11~1f: if( piRmaMode ) { piDiscard = 1; }
+			0x21: if( piRmaMode ) { piDiscard = 1; }
+			0x31~3f: if( piRmaMode ) { piDiscard = 1; }
+		}
+	}
+	if( piFlooding ) {
+		piFwdBmp = { 6'b0, piVlanMember };
+	}
+	if( piPortMirror ) {
+		piFwdBmp |= 1<<MirrorCtl.srcMirrorPort[3:0];
+	} 
+	if( piVlanMirror ) {
+		piFwdBmp |= 1<<MirrorCtl.vlanMirrorPort[3:0];
+	}
+	// 6.0 loop detection packet
+	if( prIsLoopDetection && ( (prLoopTtl <= 1 ) || (prMacSa == LoopDetectCtl.loopMac) ) ) {
+		piDiscard = 1;
+	}
+	// 6.1 source port excluding
+	if( !piAllowBrg2Src ) {
+		piFwdBmp &= ~(1<<piSrcPort);
+	}
+	// 6.2 egress filter
+	for( i = 0; i < 8; i++ ) {	
+		if( piEgressFilter && piFwdBmp[i] && !piVlanMember[i] ) {
+			piFwdBmp[i] = 1'b0;
+			if( ( piBrgHit && piLeakyUcast ) || ( piMcast && piLeakyMcast )
+			|| ( piBcast && piLeakyBcast ) || ( prIsArp && piLeakyArp )
+			|| ( ( piPortMirror || piVlanMirror ) && piLeakyMirror ) ) {
+				piFwdBmp[i] = 1'b1;
+			}
+		}
+	}
+	if( piDiscard ) { piFwdBmp = 16'b0; }

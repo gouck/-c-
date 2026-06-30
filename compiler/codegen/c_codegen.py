@@ -135,6 +135,10 @@ class CCodeGenerator:
         self._var_widths: Dict[str, int] = {}
         # Track table way bits: table_name → number of bits for the way index
         self._table_way_bits: Dict[str, int] = {}
+        # File origin mapping: function/process name → source .c filename
+        self._func_file_map: Dict[str, str] = {
+            "parser": "parser.c", "switchX": "switchX.c", "egress": "egress.c",
+        }
 
     # ==================================================================
     # helpers
@@ -530,6 +534,9 @@ class CCodeGenerator:
 
     def _gen_function(self, func: FunctionDef) -> List[str]:
         lines: List[str] = []
+        # File origin marker (for multi-file output splitting)
+        fname = self._func_file_map.get(func.name, "main.c")
+        lines.append(f"/* @8m-file: {fname} */")
         ret = self._type_to_c(func.return_type) if func.return_type else "void"
         # parser function takes 包缓冲区 pointer
         if func.name == "parser":
@@ -609,6 +616,9 @@ class CCodeGenerator:
     def _gen_process_tick(self, proc: ProcessDef) -> List[str]:
         """Convert process to tick function with optional FSM."""
         lines: List[str] = []
+        # File origin marker
+        fname = self._func_file_map.get(proc.name, "main.c")
+        lines.append(f"/* @8m-file: {fname} */")
         lines.append(f"void {proc.name}_tick(void) {{")
         self._indent_level += 1
         self._in_process = True

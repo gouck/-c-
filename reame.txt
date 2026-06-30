@@ -1,0 +1,20 @@
+Remove-Item -Recurse -Force build -ErrorAction SilentlyContinue; Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue; Remove-Item *.spec -ErrorAction SilentlyContinue; Write-Host "Cleaned"
+
+pyinstaller --onefile --windowed --name 八米编译器 --add-data source;source gui.py
+
+
+python -c "from compiler.pipeline import CompilerPipeline; p = CompilerPipeline('source/8mSpec_0821.c', 'source/tinyReg.txt', './output', 'all', True); p.run()"
+
+
+git add -A
+git status
+git commit -m "v1.5: RTL代码生成器 - 可综合Verilog + 模块端口自动推导"
+git push
+git tag v1.5 -f
+git push --tags
+
+git checkout v1.4
+
+cd C:\Users\91383\Desktop\tsn\compiler\output
+gcc tb.c output.c -o tb.exe -std=c99 -w -fcommon
+.\tb.exe

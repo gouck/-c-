@@ -453,16 +453,22 @@ class CRegDriverGenerator:
     # Source generation
     # ==================================================================
 
-    def generate_source(self) -> str:
+    def generate_source(self, header_name: str = "") -> str:
         """
         Generate the C source file content.
+
+        Args:
+            header_name: If non-empty, used as the #include target instead
+                         of the default "reg_drv.h".  Used in split-reg mode.
+                         e.g. "tinyReg" → #include "reg_drv_tinyReg.h"
 
         Returns:
             A string containing the complete C source file.
         """
         buf: List[str] = []
 
-        buf.append('#include "reg_drv.h"')
+        inc = f'"reg_drv_{header_name}.h"' if header_name else '"reg_drv.h"'
+        buf.append(f'#include {inc}')
         buf.append("")
 
         # -- global register variable definitions --

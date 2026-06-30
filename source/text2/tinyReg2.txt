@@ -1,0 +1,14 @@
+FileName	Prefix	AddrUpper	AddrLower	FlopInput
+tinyReg2	TINY_	17	2	Y
+
+RegMem	FullName	NumOfEntries	Words	MemAddrBits	DecodeAddress	Description
+Ds1qPriorMap	Ds1qPriorMap	8	1	3	16'b00_0000_0000_000?_??	Ds1qPriorMap RamTable
+DsDscpPriorMap	DsDscpPriorMap	64	1	6	16'b00_0100_0000_????_??	DsDscpPriorMap RamTable
+
+MemRegFields	Ds1qPriorMap
+Fields	Offset	HiBit	LoBit	ReadTrigger	WriteTrigger	Description
+prior	0	1	0	Y	Y	prior field
+
+MemRegFields	DsDscpPriorMap
+Fields	Offset	HiBit	LoBit	ReadTrigger	WriteTrigger	Description
+prior	0	1	0	Y	Y	prior field
