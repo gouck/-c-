@@ -1,0 +1,72 @@
+--- switch_api.c  (原始版本)
++++ switch_api.c  (场景一：新增 prIpProto 后)
+@@ -25,6 +25,7 @@
+ extern uint32_t piSrcPort, piPktLength;
+ extern uint32_t prVlanId, piVlanId, piPrior;
++extern uint32_t prIpProto;
+ 
+ int g_tb_ok = 0, g_tb_ng = 0;
+ 
+@@ -183,6 +184,11 @@
+ uint8_t* switch_packet_buffer(void) { return PacketByte; }
+ int switch_is_discarded(void)    { return g_enq == 0; }
+ 
++/* [新增] IP 协议号读取接口 */
++uint32_t switch_ip_protocol(void) { return prIpProto; }
++
+ /* ================================================================
+  * STP 实现
+  * ================================================================ */
+@@ -191,4 +197,3 @@
+     if (port >= 0 && port < 8) g_stp_state[port] = state;
+ }
+ int switch_port_is_forwarding(int port) {
+     return (port >= 0 && port < 8) ? (g_stp_state[port] >= SW_STP_LEARNING) : 0;
+ }
+-
+
+--- switch_api.h  (对应的接口声明变更)
++++ switch_api.h
+@@ -58,6 +58,9 @@
+ /** 获取包的当前状态 */
+ uint8_t* switch_packet_buffer(void);
+ 
++/** parser 解析出的 IP 协议号 (1=ICMP, 6=TCP, 17=UDP) */
++uint32_t switch_ip_protocol(void);
++
+ /** 包是否被丢弃 */
+ int switch_is_discarded(void);
+
+
+========================================
+场景二：新增 tinyReg 表 (DsIgmpGroup)
+========================================
+
+--- switch_api.c  (include 变更)
++++ switch_api.c
+@@ -4,6 +4,7 @@
+ #include "reg_drv_tinyReg.h"
+ #include "reg_drv_tinyReg2.h"
++#include "reg_drv_tinyReg3.h"
+
+
+--- switch_api.c  (_init_all_tables 中新增)
+@@ -108,6 +109,7 @@
+     memset(DsMacStatic_mem,  0, sizeof(DsMacStatic_mem));
+     memset(DsMacAging_mem,   0, sizeof(DsMacAging_mem));
++    memset(DsIgmpGroup_mem,  0, sizeof(DsIgmpGroup_mem));
+
+
+========================================
+场景三：主 process 改名 (forward → main_pipeline)
+========================================
+
+--- switch_api.c
++++ switch_api.c
+@@ -63 +63 @@
+-void forward_tick(void);
++void main_pipeline_tick(void);
+
+@@ -177 +177 @@
+-    forward_tick();
++    main_pipeline_tick();
