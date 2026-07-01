@@ -1,0 +1,18 @@
+# 编译产物
+*.so
+*.dll
+*.exe
+*.o
+
+# Python 临时文件
+*_new.py
+*_new2.py
+_write_*.py
+__pycache__/
+*.pyc
+
+# 测试输出
+coverage_report.html
+coverage_report.json
+trace_output.json
+trace_output.vcd
