@@ -50,3 +50,11 @@ cd c:\Users\91383\Desktop\tsn\compiler\output\008\c_project
 gcc ..\..\test_framework\tb_new.c ..\..\test_framework\switch_api.c src\8m_common.c src\8m_main.c src\8m_parser.c src\8m_switchX.c src\8m_egress.c -o tb_new.exe -std=c99 -w -fcommon -Iinclude -I..\..\test_framework
 
 .\tb_new.exe
+
+
+
+gcc -shared -fPIC -o libswitch_dut.so c_api/switch_api.c ../output/010/c_project/src/8m_common.c ../output/010/c_project/src/8m_main.c ../output/010/c_project/src/8m_parser.c ../output/010/c_project/src/8m_switchX.c ../output/010/c_project/src/8m_egress.c ../output/010/c_project/src/8m_trace.c -std=c99 -w -fcommon -I../output/010/c_project/include -Ic_api
+
+python tests/verify.py
+
+start coverage_report.html

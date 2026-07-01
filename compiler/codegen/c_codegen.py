@@ -139,6 +139,10 @@ class CCodeGenerator:
         self._func_file_map: Dict[str, str] = {
             "parser": "parser.c", "switchX": "switchX.c", "egress": "egress.c",
         }
+        # Trace: collect all auto-declared + var-decl variable names per function
+        # Key: function name, Value: set of variable names
+        self._trace_vars: Dict[str, set[str]] = {}
+        self._trace_enabled: bool = False
 
     # ==================================================================
     # helpers
@@ -604,6 +608,21 @@ class CCodeGenerator:
         if func.body is not None:
             for s in func.body.stmts:
                 lines.append(self._indent(self._gen_statement(s)))
+
+        # Step 8: [trace] append assignments from locals → g_trace_* globals
+        if self._trace_enabled and func.name == "switchX":
+            trace_names = sorted(all_var_decl_names | undeclared)
+            # Store for pipeline to generate extern header
+            self._trace_vars[func.name] = set(trace_names)
+            if trace_names:
+                lines.append(self._indent("/* [trace] export internal variables */"))
+                for vname in trace_names:
+                    lines.append(self._indent(f"g_trace_{vname} = {vname};"))
+                # Record known bit-widths for these trace variables
+                for vname in trace_names:
+                    if vname in _KNOWN_VAR_WIDTHS:
+                        self._trace_vars.setdefault("_widths", {})[vname] = _KNOWN_VAR_WIDTHS[vname]
+
         self._indent_level -= 1
         lines.append("}")
         lines.append("")
@@ -1590,6 +1609,7 @@ class CCodeGenerator:
         
         Shift amounts are determined by the bit-widths of the right-side parts.
         When widths are unknown for a part, defaults to 8 (byte-level concat).
+        PacketByte[...] parts always treated as 8-bit bytes.
         """
         if not expr.parts:
             return "0"
@@ -1606,8 +1626,12 @@ class CCodeGenerator:
                     parts.append(self._gen_dynamic_range(p))
                     part_widths.append(0)  # unknown width
             else:
-                parts.append(self._gen_expr(p))
+                part_str = self._gen_expr(p)
+                parts.append(part_str)
                 w = self._get_bit_width(p)
+                # Fix: PacketByte[...] array access should always be 8 bits
+                if w is not None and w == 1 and 'PacketByte[' in part_str:
+                    w = 8
                 part_widths.append(w if w is not None else 0)
         if len(parts) == 1:
             return parts[0]

@@ -494,6 +494,7 @@ class CompilerPipeline:
         # -- 生成 merged output.c (向后兼容，工程模式下跳过) --
         if not self.project_mode or self.merge_only:
             codegen = CCodeGenerator(self.translation_unit, self.symtab)
+            codegen._trace_enabled = True
             if hasattr(self, '_individual_reg_maps') and len(self._individual_reg_maps) > 1:
                 main_code = codegen.generate(reg_drv_includes=reg_drv_headers)
             else:
@@ -503,9 +504,12 @@ class CompilerPipeline:
                 f.write(main_code)
             if self.verbose:
                 print(f"    {out_path} ({len(main_code)} bytes)")
+            # generate trace files
+            self._generate_trace_files(codegen, is_project=False)
         else:
             # 工程模式：仍然生成 merged_code 供 c_project 拆分使用
             codegen = CCodeGenerator(self.translation_unit, self.symtab)
+            codegen._trace_enabled = True
             if hasattr(self, '_individual_reg_maps') and len(self._individual_reg_maps) > 1:
                 main_code = codegen.generate(reg_drv_includes=reg_drv_headers)
             else:
@@ -514,6 +518,8 @@ class CompilerPipeline:
         # ──  方案B: 多文件工程输出 ──
         if self.project_mode and not self.merge_only:
             self._generate_project_output(reg_drv_headers, main_code)
+            # generate trace files into c_project
+            self._generate_trace_files(codegen, is_project=True)
 
     # ------------------------------------------------------------------
     # 方案B: 多文件C工程输出
@@ -780,6 +786,98 @@ tb: $(OBJS)
 
         print(f"\n  Multi-file C project generated: {proj_dir}")
         print(f"  Build: cd {proj_dir} && make")
+
+    # ------------------------------------------------------------------
+    # Trace support: export switchX internal variables
+    # ------------------------------------------------------------------
+
+    def _generate_trace_files(self, codegen: CCodeGenerator, is_project: bool = False) -> None:
+        """Generate 8m_trace_extern.h + 8m_trace.c from codegen trace data.
+
+        After codegen._trace_enabled=True, _gen_function() collects
+        all auto-declared + var-decl variable names per function.
+        This method writes global extern declarations and definitions.
+        """
+        if not hasattr(codegen, '_trace_vars') or not codegen._trace_vars:
+            return
+
+        # Determine output directory
+        if is_project:
+            out_inc = os.path.join(self.output_dir, "c_project", "include")
+            out_src = os.path.join(self.output_dir, "c_project", "src")
+        else:
+            out_inc = self.output_dir
+            out_src = self.output_dir
+        os.makedirs(out_inc, exist_ok=True)
+        os.makedirs(out_src, exist_ok=True)
+
+        # Collect all trace variable names (only uint32_t for now)
+        all_trace_vars: set[str] = set()
+        for fname, vnames in codegen._trace_vars.items():
+            if fname == "_widths":
+                continue
+            if fname == "switchX":  # only export switchX internals
+                all_trace_vars |= vnames
+
+        if not all_trace_vars:
+            return
+
+        sorted_vars = sorted(all_trace_vars)
+
+        # Generate 8m_trace_extern.h
+        extern_lines = ['#ifndef _8M_TRACE_EXTERN_H_',
+                        '#define _8M_TRACE_EXTERN_H_',
+                        '',
+                        '#include <stdint.h>',
+                        '',
+                        '/* Auto-generated trace variables for testbench observation */',
+                        '/* These mirror switchX() local variables after each forward_tick() */',
+                        '']
+        for v in sorted_vars:
+            extern_lines.append(f'extern uint32_t g_trace_{v};')
+        extern_lines.append('')
+        extern_lines.append('#endif /* _8M_TRACE_EXTERN_H_ */')
+        extern_lines.append('')
+
+        trace_h_path = os.path.join(out_inc, "8m_trace_extern.h")
+        trace_h_content = '\n'.join(extern_lines)
+        with open(trace_h_path, "w", encoding="utf-8") as f:
+            f.write(trace_h_content)
+        if self.verbose:
+            print(f"    {trace_h_path} ({len(trace_h_content)} bytes) [trace externs]")
+
+        # Generate 8m_trace.c (global variable definitions)
+        trace_c_lines = ['/* Auto-generated trace variable definitions */',
+                         '#include <stdint.h>',
+                         '']
+        for v in sorted_vars:
+            trace_c_lines.append(f'uint32_t g_trace_{v} = 0;')
+        trace_c_lines.append('')
+
+        trace_c_path = os.path.join(out_src, "8m_trace.c")
+        trace_c_content = '\n'.join(trace_c_lines)
+        with open(trace_c_path, "w", encoding="utf-8") as f:
+            f.write(trace_c_content)
+        if self.verbose:
+            print(f"    {trace_c_path} ({len(trace_c_content)} bytes) [trace defs]")
+
+        # Also append the extern include to 8m_globals_extern.h for convenience
+        globals_path = os.path.join(out_inc, "8m_globals_extern.h")
+        if os.path.exists(globals_path):
+            with open(globals_path, "r") as f:
+                content = f.read()
+            if '#include "8m_trace_extern.h"' not in content:
+                # Insert before #endif
+                content = content.replace(
+                    '#endif /* _8M_GLOBALS_EXTERN_H_ */',
+                    '#include "8m_trace_extern.h"\n\n#endif /* _8M_GLOBALS_EXTERN_H_ */'
+                )
+                with open(globals_path, "w") as f:
+                    f.write(content)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
     def _gen_runtime_header(self) -> str:
         """Generate the 8m_runtime.h header with shared macros and helpers."""
