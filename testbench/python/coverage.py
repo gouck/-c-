@@ -16,26 +16,33 @@ class FunctionalCoverage:
     def __init__(self):
         self.points = {}
         A = self._add
-        A("DsMac_mem",{**_bw("DsMac_mem.destMap"),**_b1("DsMac_mem.destDiscard"),**_b1("DsMac_mem.isMcast"),**_b2("DsMac_mem.prior")})
-        A("DsMacAging_mem",{**_b2("DsMacAging_mem.aging0"),**_b2("DsMacAging_mem.aging1"),**_b2("DsMacAging_mem.aging2"),**_b2("DsMacAging_mem.aging3")})
-        A("DsMacKey_mem",{**_bw("DsMacKey_mem.fid"),**_bw("DsMacKey_mem.macAddr")})
-        A("DsMacStatic_mem",{**_b4("DsMacStatic_mem.static")})
-        A("DsMacValid_mem",{**_b4("DsMacValid_mem.valid")})
-        A("DsPort_mem",{**_bw("DsPort_mem.portVid"),**_b1("DsPort_mem.dot1qBasedVlan"),**_b2("DsPort_mem.aft"),**_b1("DsPort_mem.keepVlanTag"),**_bw("DsPort_mem.portMacHi"),**_bw("DsPort_mem.portMacLo"),**_b3("DsPort_mem.stpState"),**_bm("DsPort_mem.maxMacNum",8),**_b1("DsPort_mem.allowBrg2Src"),**_b1("DsPort_mem.lrnDisable"),**_b2("DsPort_mem.prior"),**_b1("DsPort_mem.rmaMode"),**_b1("DsPort_mem.mirrorEn"),**_b1("DsPort_mem.updateMacSa"),**_b1("DsPort_mem.strictPvid")})
-        A("DsStormCtrl_mem",{**_b1("DsStormCtrl_mem.enable"),**_b1("DsStormCtrl_mem.usePkt"),**_bw("DsStormCtrl_mem.cntThrd"),**_bw("DsStormCtrl_mem.counter"),**_bw("DsStormCtrl_mem.step")})
-        A("DsVlan_mem",{**_bw("DsVlan_mem.fid"),**_bw("DsVlan_mem.vlanBmp"),**_bw("DsVlan_mem.untagFlag"),**_b1("DsVlan_mem.leakyUcast"),**_b1("DsVlan_mem.leakyMcast"),**_b1("DsVlan_mem.leakyBcast"),**_b1("DsVlan_mem.leakyArp"),**_b1("DsVlan_mem.leakyMirror"),**_b1("DsVlan_mem.egressFilter"),**_b1("DsVlan_mem.dot1qPriorEn"),**_b1("DsVlan_mem.mirrorEn"),**_b2("DsVlan_mem.prior")})
-        A("DsAcl_mem",{**_b1("DsAcl_mem.action"),**_bw("DsAcl_mem.etherType"),**_bw("DsAcl_mem.vlanId"),**_bw("DsAcl_mem.srcMacHi"),**_bw("DsAcl_mem.srcMacLo")})
-        A("L2AgingCtl",{**_b1("L2AgingCtl.fastAgingEn"),**_b1("L2AgingCtl.agingEn"),**_b1("L2AgingCtl.fastAgingAll"),**_b1("L2AgingCtl.fastAgingByPort"),**_b4("L2AgingCtl.portId"),**_bw("L2AgingCtl.cycleThrd")})
-        A("L2LearnCtl",{**_bw("L2LearnCtl.sysLearnNum"),**_b1("L2LearnCtl.lruEn")})
-        A("LoopDetectCtl",{**_b1("LoopDetectCtl.en"),**_b4("LoopDetectCtl.ttl"),**_bw("LoopDetectCtl.loopMacHi"),**_bw("LoopDetectCtl.loopMacLo"),**_bw("LoopDetectCtl.detectInterval")})
-        A("MirrorCtl",{**_b4("MirrorCtl.srcMirrorPort"),**_b4("MirrorCtl.vlanMirrorPort")})
-        A("PriorAssignCtl",{**_b1("PriorAssignCtl.ipDscpEn"),**_b1("PriorAssignCtl.ipAddrEn"),**_b1("PriorAssignCtl.macDaEn"),**_b1("PriorAssignCtl.rldpEn"),**_b2("PriorAssignCtl.rldpPrior"),**_b2("PriorAssignCtl.dscpWeight"),**_b2("PriorAssignCtl.vlanWeight"),**_b2("PriorAssignCtl.portWeight"),**_b2("PriorAssignCtl.ip0AddrPrior"),**_b2("PriorAssignCtl.ip1AddrPrior"),**_bw("PriorAssignCtl.ip0AddrBit127To96"),**_bw("PriorAssignCtl.ip0MaskBit127To96"),**_bw("PriorAssignCtl.ip1AddrBit127To96"),**_bw("PriorAssignCtl.ip1MaskBit127To96"),**_bw("PriorAssignCtl.ip0AddrBit95To64"),**_bw("PriorAssignCtl.ip0MaskBit95To64"),**_bw("PriorAssignCtl.ip1AddrBit95To64"),**_bw("PriorAssignCtl.ip1MaskBit95To64")})
-        A("StormCfgCtl",{**_b1("StormCfgCtl.enable"),**_bw("StormCfgCtl.delayInterval")})
-        v={}
-        for i in range(16): v.update(_bw(f"VlanIdCamCtl.vlanId{i}"))
-        A("VlanIdCamCtl",v)
-        A("Ds1qPriorMap_mem",{**_b2("Ds1qPriorMap_mem.prior")})
-        A("DsDscpPriorMap_mem",{**_b2("DsDscpPriorMap_mem.prior")})
+
+        # ── 优先加载编译器自动生成的寄存器仓定义 ──
+        try:
+            from coverage_bins import get_register_bins
+            self.points = get_register_bins()
+        except ImportError:
+            # 回退：人手写的仓定义（编译器未运行时）
+            A("DsMac_mem",{**_bw("DsMac_mem.destMap"),**_b1("DsMac_mem.destDiscard"),**_b1("DsMac_mem.isMcast"),**_b2("DsMac_mem.prior")})
+            A("DsMacAging_mem",{**_b2("DsMacAging_mem.aging0"),**_b2("DsMacAging_mem.aging1"),**_b2("DsMacAging_mem.aging2"),**_b2("DsMacAging_mem.aging3")})
+            A("DsMacKey_mem",{**_bw("DsMacKey_mem.fid"),**_bw("DsMacKey_mem.macAddr")})
+            A("DsMacStatic_mem",{**_b4("DsMacStatic_mem.static")})
+            A("DsMacValid_mem",{**_b4("DsMacValid_mem.valid")})
+            A("DsPort_mem",{**_bw("DsPort_mem.portVid"),**_b1("DsPort_mem.dot1qBasedVlan"),**_b2("DsPort_mem.aft"),**_b1("DsPort_mem.keepVlanTag"),**_bw("DsPort_mem.portMacHi"),**_bw("DsPort_mem.portMacLo"),**_b3("DsPort_mem.stpState"),**_bm("DsPort_mem.maxMacNum",8),**_b1("DsPort_mem.allowBrg2Src"),**_b1("DsPort_mem.lrnDisable"),**_b2("DsPort_mem.prior"),**_b1("DsPort_mem.rmaMode"),**_b1("DsPort_mem.mirrorEn"),**_b1("DsPort_mem.updateMacSa"),**_b1("DsPort_mem.strictPvid")})
+            A("DsStormCtrl_mem",{**_b1("DsStormCtrl_mem.enable"),**_b1("DsStormCtrl_mem.usePkt"),**_bw("DsStormCtrl_mem.cntThrd"),**_bw("DsStormCtrl_mem.counter"),**_bw("DsStormCtrl_mem.step")})
+            A("DsVlan_mem",{**_bw("DsVlan_mem.fid"),**_bw("DsVlan_mem.vlanBmp"),**_bw("DsVlan_mem.untagFlag"),**_b1("DsVlan_mem.leakyUcast"),**_b1("DsVlan_mem.leakyMcast"),**_b1("DsVlan_mem.leakyBcast"),**_b1("DsVlan_mem.leakyArp"),**_b1("DsVlan_mem.leakyMirror"),**_b1("DsVlan_mem.egressFilter"),**_b1("DsVlan_mem.dot1qPriorEn"),**_b1("DsVlan_mem.mirrorEn"),**_b2("DsVlan_mem.prior")})
+            A("DsAcl_mem",{**_b1("DsAcl_mem.action"),**_bw("DsAcl_mem.etherType"),**_bw("DsAcl_mem.vlanId"),**_bw("DsAcl_mem.srcMacHi"),**_bw("DsAcl_mem.srcMacLo")})
+            A("L2AgingCtl",{**_b1("L2AgingCtl.fastAgingEn"),**_b1("L2AgingCtl.agingEn"),**_b1("L2AgingCtl.fastAgingAll"),**_b1("L2AgingCtl.fastAgingByPort"),**_b4("L2AgingCtl.portId"),**_bw("L2AgingCtl.cycleThrd")})
+            A("L2LearnCtl",{**_bw("L2LearnCtl.sysLearnNum"),**_b1("L2LearnCtl.lruEn")})
+            A("LoopDetectCtl",{**_b1("LoopDetectCtl.en"),**_b4("LoopDetectCtl.ttl"),**_bw("LoopDetectCtl.loopMacHi"),**_bw("LoopDetectCtl.loopMacLo"),**_bw("LoopDetectCtl.detectInterval")})
+            A("MirrorCtl",{**_b4("MirrorCtl.srcMirrorPort"),**_b4("MirrorCtl.vlanMirrorPort")})
+            A("PriorAssignCtl",{**_b1("PriorAssignCtl.ipDscpEn"),**_b1("PriorAssignCtl.ipAddrEn"),**_b1("PriorAssignCtl.macDaEn"),**_b1("PriorAssignCtl.rldpEn"),**_b2("PriorAssignCtl.rldpPrior"),**_b2("PriorAssignCtl.dscpWeight"),**_b2("PriorAssignCtl.vlanWeight"),**_b2("PriorAssignCtl.portWeight"),**_b2("PriorAssignCtl.ip0AddrPrior"),**_b2("PriorAssignCtl.ip1AddrPrior"),**_bw("PriorAssignCtl.ip0AddrBit127To96"),**_bw("PriorAssignCtl.ip0MaskBit127To96"),**_bw("PriorAssignCtl.ip1AddrBit127To96"),**_bw("PriorAssignCtl.ip1MaskBit127To96"),**_bw("PriorAssignCtl.ip0AddrBit95To64"),**_bw("PriorAssignCtl.ip0MaskBit95To64"),**_bw("PriorAssignCtl.ip1AddrBit95To64"),**_bw("PriorAssignCtl.ip1MaskBit95To64")})
+            A("StormCfgCtl",{**_b1("StormCfgCtl.enable"),**_bw("StormCfgCtl.delayInterval")})
+            v={}
+            for i in range(16): v.update(_bw(f"VlanIdCamCtl.vlanId{i}"))
+            A("VlanIdCamCtl",v)
+            A("Ds1qPriorMap_mem",{**_b2("Ds1qPriorMap_mem.prior")})
+            A("DsDscpPriorMap_mem",{**_b2("DsDscpPriorMap_mem.prior")})
         self.cross = {}
         for a in range(4):
             for t in [0,1]: self.cross[f"DsPort_mem.aft={a}_x_piTagged={t}"]=0

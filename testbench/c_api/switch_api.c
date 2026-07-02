@@ -93,65 +93,45 @@ static int g_port_max_mac[8];
 static int g_port_mac_cnt[8];
 
 /* ================================================================
- * 初始化
+ * 数组越界检查宏（setter/getter 共用）
+ * ================================================================ */
+#define PORT_OK(p)       ((p)>=0 && (p)<8)
+#define VLAN_OK(i)       ((i)>=0 && (i)<16)
+#define MAC_OK(i)        ((i)>=0 && (i)<2048)
+#define ACL_OK(i)        ((i)>=0 && (i)<32)
+#define STORM_OK(i)      ((i)>=0 && (i)<32)
+#define PRIOR1Q_OK(i)    ((i)>=0 && (i)<8)
+#define PRIORDSCP_OK(i)  ((i)>=0 && (i)<64)
+
+/* ================================================================
+ * 初始化（只做硬件复位，默认配置由 Python 侧 init_chip_config() 负责）
  * ================================================================ */
 
-static void _init_all_tables(void) {
+static void _hw_reset(void) {
     int i;
-    for (i = 0; i < 8; i++) {
-        memset(&DsPort_mem[i], 0, sizeof(DsPort_mem[0]));
-        DsPort_mem[i].portVid        = 100 + i;
-        DsPort_mem[i].aft            = 0;
-        DsPort_mem[i].allowBrg2Src   = 1;
-        DsPort_mem[i].dot1qBasedVlan = 0;
-    }
-    for (i = 0; i < 16; i++) {
-        memset(&DsVlan_mem[i], 0, sizeof(DsVlan_mem[0]));
-        DsVlan_mem[i].vlanBmp   = 0xFF;
-        DsVlan_mem[i].fid       = 100 + i;
-        DsVlan_mem[i].untagFlag = 0xFF;
-    }
-    memset(Ds1qPriorMap_mem,   0, sizeof(Ds1qPriorMap_mem));
-    memset(DsDscpPriorMap_mem, 0, sizeof(DsDscpPriorMap_mem));
-    memset(DsStormCtrl_mem,    0, sizeof(DsStormCtrl_mem));
+    /* 所有寄存器表清零 */
+    memset(DsPort_mem,       0, sizeof(DsPort_mem));
+    memset(DsVlan_mem,       0, sizeof(DsVlan_mem));
+    memset(Ds1qPriorMap_mem, 0, sizeof(Ds1qPriorMap_mem));
+    memset(DsDscpPriorMap_mem,0,sizeof(DsDscpPriorMap_mem));
+    memset(DsStormCtrl_mem,  0, sizeof(DsStormCtrl_mem));
     memset(DsMac_mem,        0, sizeof(DsMac_mem));
     memset(DsMacKey_mem,     0, sizeof(DsMacKey_mem));
     memset(DsMacValid_mem,   0, sizeof(DsMacValid_mem));
     memset(DsMacStatic_mem,  0, sizeof(DsMacStatic_mem));
     memset(DsMacAging_mem,   0, sizeof(DsMacAging_mem));
     memset(DsAcl_mem,        0, sizeof(DsAcl_mem));
-
-    memset(&VlanIdCamCtl, 0, sizeof(VlanIdCamCtl));
-    for (i = 0; i < 16; i++) {
-        switch (i) {
-            case  0: VlanIdCamCtl.vlanId0  = 100; break;
-            case  1: VlanIdCamCtl.vlanId1  = 101; break;
-            case  2: VlanIdCamCtl.vlanId2  = 102; break;
-            case  3: VlanIdCamCtl.vlanId3  = 103; break;
-            case  4: VlanIdCamCtl.vlanId4  = 104; break;
-            case  5: VlanIdCamCtl.vlanId5  = 105; break;
-            case  6: VlanIdCamCtl.vlanId6  = 106; break;
-            case  7: VlanIdCamCtl.vlanId7  = 107; break;
-            case  8: VlanIdCamCtl.vlanId8  = 108; break;
-            case  9: VlanIdCamCtl.vlanId9  = 109; break;
-            case 10: VlanIdCamCtl.vlanId10 = 110; break;
-            case 11: VlanIdCamCtl.vlanId11 = 111; break;
-            case 12: VlanIdCamCtl.vlanId12 = 112; break;
-            case 13: VlanIdCamCtl.vlanId13 = 113; break;
-            case 14: VlanIdCamCtl.vlanId14 = 114; break;
-            case 15: VlanIdCamCtl.vlanId15 = 115; break;
-        }
-    }
-    memset(&L2AgingCtl,     0, sizeof(L2AgingCtl));
-    memset(&L2LearnCtl,     0, sizeof(L2LearnCtl));
-    memset(&LoopDetectCtl,  0, sizeof(LoopDetectCtl));
-    memset(&MirrorCtl,      0, sizeof(MirrorCtl));
-    memset(&PriorAssignCtl, 0, sizeof(PriorAssignCtl));
-    memset(&StormCfgCtl,    0, sizeof(StormCfgCtl));
-
+    memset(&VlanIdCamCtl,    0, sizeof(VlanIdCamCtl));
+    memset(&L2AgingCtl,      0, sizeof(L2AgingCtl));
+    memset(&L2LearnCtl,      0, sizeof(L2LearnCtl));
+    memset(&LoopDetectCtl,   0, sizeof(LoopDetectCtl));
+    memset(&MirrorCtl,       0, sizeof(MirrorCtl));
+    memset(&PriorAssignCtl,  0, sizeof(PriorAssignCtl));
+    memset(&StormCfgCtl,     0, sizeof(StormCfgCtl));
+    /* 测试计数器归零 */
     for (i = 0; i < 8; i++) {
         g_rx_cnt[i] = g_tx_cnt[i] = g_drop_cnt[i] = 0;
-        g_stp_state[i] = SW_STP_FORWARDING;
+        g_stp_state[i] = 0;
         g_port_max_mac[i] = 0;
         g_port_mac_cnt[i] = 0;
     }
@@ -160,7 +140,18 @@ static void _init_all_tables(void) {
 
 void switch_init(void) {
     memset(PacketByte, 0, sizeof(PacketByte));
-    _init_all_tables();
+    _hw_reset();
+    switch_reset_parser_globals();
+}
+
+/* ================================================================
+ * Parser 全局变量复位（消除跨包残留）
+ * ================================================================ */
+
+void switch_reset_parser_globals(void) {
+    prVlanId = 0; prVlanPrior = 0; prExistVlan = 0;
+    prIsIpv4 = 0; prIsIpv6 = 0; prIsArp = 0; prIsLoopDetection = 0;
+    giTpid = 0; prIpDscp = 0;
 }
 
 /* ================================================================
@@ -173,10 +164,7 @@ void switch_process_packet(uint8_t *pkt, int len, int src_port) {
     memcpy(PacketByte, pkt, len < 512 ? len : 512);
     piSrcPort   = src_port;
     piPktLength = len;
-    /* reset parser globals（非VLAN报文不会写入这些字段，需手动清零） */
-    prVlanId = 0; prVlanPrior = 0; prExistVlan = 0;
-    prIsIpv4 = 0; prIsIpv6 = 0; prIsArp = 0; prIsLoopDetection = 0;
-    giTpid = 0; prIpDscp = 0;
+    switch_reset_parser_globals();
     forward_tick();
     if (g_enq == 0 && src_port >= 0 && src_port < 8)
         g_drop_cnt[src_port]++;
@@ -258,6 +246,70 @@ void switch_set_acl_entry(int idx, int action, int ether_type) {
     }
 }
 
+/* -- DsPort 全部字段 setter -- */
+void switch_set_DsPort_dot1qBasedVlan(int port, int v) { if (PORT_OK(port)) DsPort_mem[port].dot1qBasedVlan = v & 1; }
+void switch_set_DsPort_keepVlanTag(int port, int v)    { if (PORT_OK(port)) DsPort_mem[port].keepVlanTag    = v & 1; }
+void switch_set_DsPort_allowBrg2Src(int port, int v)   { if (PORT_OK(port)) DsPort_mem[port].allowBrg2Src   = v & 1; }
+void switch_set_DsPort_lrnDisable(int port, int v)     { if (PORT_OK(port)) DsPort_mem[port].lrnDisable     = v & 1; }
+void switch_set_DsPort_rmaMode(int port, int v)        { if (PORT_OK(port)) DsPort_mem[port].rmaMode        = v & 1; }
+void switch_set_DsPort_mirrorEn(int port, int v)       { if (PORT_OK(port)) DsPort_mem[port].mirrorEn       = v & 1; }
+void switch_set_DsPort_updateMacSa(int port, int v)    { if (PORT_OK(port)) DsPort_mem[port].updateMacSa    = v & 1; }
+void switch_set_DsPort_strictPvid(int port, int v)     { if (PORT_OK(port)) DsPort_mem[port].strictPvid     = v & 1; }
+void switch_set_DsPort_prior(int port, int v)          { if (PORT_OK(port)) DsPort_mem[port].prior          = v & 3; }
+
+/* -- DsVlan 全部字段 setter -- */
+void switch_set_DsVlan_fid(int idx, int v)          { if (VLAN_OK(idx)) DsVlan_mem[idx].fid          = v & 0xFFF; }
+void switch_set_DsVlan_vlanBmp(int idx, int v)      { if (VLAN_OK(idx)) DsVlan_mem[idx].vlanBmp      = v & 0x3FF; }
+void switch_set_DsVlan_untagFlag(int idx, int v)    { if (VLAN_OK(idx)) DsVlan_mem[idx].untagFlag    = v & 0x3FF; }
+void switch_set_DsVlan_leakyUcast(int idx, int v)   { if (VLAN_OK(idx)) DsVlan_mem[idx].leakyUcast   = v & 1; }
+void switch_set_DsVlan_leakyMcast(int idx, int v)   { if (VLAN_OK(idx)) DsVlan_mem[idx].leakyMcast   = v & 1; }
+void switch_set_DsVlan_leakyBcast(int idx, int v)   { if (VLAN_OK(idx)) DsVlan_mem[idx].leakyBcast   = v & 1; }
+void switch_set_DsVlan_leakyArp(int idx, int v)     { if (VLAN_OK(idx)) DsVlan_mem[idx].leakyArp     = v & 1; }
+void switch_set_DsVlan_leakyMirror(int idx, int v)  { if (VLAN_OK(idx)) DsVlan_mem[idx].leakyMirror  = v & 1; }
+void switch_set_DsVlan_egressFilter(int idx, int v) { if (VLAN_OK(idx)) DsVlan_mem[idx].egressFilter = v & 1; }
+void switch_set_DsVlan_dot1qPriorEn(int idx, int v) { if (VLAN_OK(idx)) DsVlan_mem[idx].dot1qPriorEn = v & 1; }
+void switch_set_DsVlan_mirrorEn(int idx, int v)     { if (VLAN_OK(idx)) DsVlan_mem[idx].mirrorEn     = v & 1; }
+void switch_set_DsVlan_prior(int idx, int v)        { if (VLAN_OK(idx)) DsVlan_mem[idx].prior        = v & 3; }
+
+/* -- DsAcl 其余字段 setter -- */
+void switch_set_DsAcl_vlanId(int idx, int v)    { if (ACL_OK(idx)) DsAcl_mem[idx].vlanId    = v & 0xFFF; }
+void switch_set_DsAcl_srcMacHi(int idx, int v)  { if (ACL_OK(idx)) DsAcl_mem[idx].srcMacHi  = v & 0xFFFF; }
+void switch_set_DsAcl_srcMacLo(int idx, int v)  { if (ACL_OK(idx)) DsAcl_mem[idx].srcMacLo  = v; }
+
+/* -- VlanIdCamCtl 单例 setter -- */
+void switch_set_VlanIdCamCtl_vlanId(int i, int vid) {
+    switch (i) {
+        case  0: VlanIdCamCtl.vlanId0  = vid & 0xFFF; break;
+        case  1: VlanIdCamCtl.vlanId1  = vid & 0xFFF; break;
+        case  2: VlanIdCamCtl.vlanId2  = vid & 0xFFF; break;
+        case  3: VlanIdCamCtl.vlanId3  = vid & 0xFFF; break;
+        case  4: VlanIdCamCtl.vlanId4  = vid & 0xFFF; break;
+        case  5: VlanIdCamCtl.vlanId5  = vid & 0xFFF; break;
+        case  6: VlanIdCamCtl.vlanId6  = vid & 0xFFF; break;
+        case  7: VlanIdCamCtl.vlanId7  = vid & 0xFFF; break;
+        case  8: VlanIdCamCtl.vlanId8  = vid & 0xFFF; break;
+        case  9: VlanIdCamCtl.vlanId9  = vid & 0xFFF; break;
+        case 10: VlanIdCamCtl.vlanId10 = vid & 0xFFF; break;
+        case 11: VlanIdCamCtl.vlanId11 = vid & 0xFFF; break;
+        case 12: VlanIdCamCtl.vlanId12 = vid & 0xFFF; break;
+        case 13: VlanIdCamCtl.vlanId13 = vid & 0xFFF; break;
+        case 14: VlanIdCamCtl.vlanId14 = vid & 0xFFF; break;
+        case 15: VlanIdCamCtl.vlanId15 = vid & 0xFFF; break;
+    }
+}
+
+/* -- 单例寄存器 setter -- */
+void switch_set_L2AgingCtl_agingEn(int v)     { L2AgingCtl.agingEn     = v & 1; }
+void switch_set_L2AgingCtl_fastAgingAll(int v){ L2AgingCtl.fastAgingAll = v & 1; }
+void switch_set_L2LearnCtl_lruEn(int v)       { L2LearnCtl.lruEn       = v & 1; }
+void switch_set_LoopDetectCtl_en(int v)        { LoopDetectCtl.en       = v & 1; }
+void switch_set_MirrorCtl_srcMirrorPort(int v) { MirrorCtl.srcMirrorPort = v & 0xF; }
+void switch_set_StormCfgCtl_enable(int v)      { StormCfgCtl.enable    = v & 1; }
+
+/* -- Ds1qPriorMap / DsDscpPriorMap setter -- */
+void switch_set_Ds1qPriorMap_prior(int idx, int v)   { if (PRIOR1Q_OK(idx))  Ds1qPriorMap_mem[idx].prior   = v & 3; }
+void switch_set_DsDscpPriorMap_prior(int idx, int v) { if (PRIORDSCP_OK(idx)) DsDscpPriorMap_mem[idx].prior = v & 3; }
+
 /* ================================================================
  * STP
  * ================================================================ */
@@ -290,17 +342,7 @@ uint64_t switch_port_drop_packets(int port) { return (port>=0&&port<8)?g_drop_cn
 
 /* ================================================================
  * 寄存器字段 getter（全覆盖支持 — 直接读取寄存器数组）
- * 命名: switch_<Struct>_<field>(index)
- * 单例寄存器不带 index 参数
  * ================================================================ */
-
-#define PORT_OK(p)  ((p)>=0 && (p)<8)
-#define VLAN_OK(i)  ((i)>=0 && (i)<16)
-#define MAC_OK(i)   ((i)>=0 && (i)<2048)
-#define ACL_OK(i)   ((i)>=0 && (i)<32)
-#define STORM_OK(i) ((i)>=0 && (i)<32)
-#define PRIOR1Q_OK(i) ((i)>=0 && (i)<8)
-#define PRIORDSCP_OK(i) ((i)>=0 && (i)<64)
 
 /* -- DsPort_mem[port] -- */
 int switch_DsPort_portVid(int port)          { return PORT_OK(port)  ? DsPort_mem[port].portVid        : 0; }

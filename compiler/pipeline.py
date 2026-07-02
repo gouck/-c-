@@ -25,6 +25,8 @@ from compiler.semantic.symbol_table import SymbolTable, SymbolTableBuilder
 from compiler.semantic.type_checker import analyze
 from compiler.codegen.cpp_reg_driver_gen import CRegDriverGenerator
 from compiler.codegen.c_codegen import CCodeGenerator
+from compiler.codegen.switch_api_gen import generate as generate_switch_api
+from compiler.codegen.switch_api_gen import generate_coverage_bins
 
 
 class CompilerPipeline:
@@ -779,6 +781,9 @@ tb: $(OBJS)
         if self.verbose:
             print(f"    {mk_path} ({len(makefile)} bytes)")
 
+        # ── 6. 生成 switch_api_gen.c/.h（testbench 接口） ──
+        self._generate_switch_api_files(proj_dir)
+
         print(f"\n  Multi-file C project generated: {proj_dir}")
         print(f"    include/  — header files (.h)")
         print(f"    src/      — source files (.c)")
@@ -786,6 +791,73 @@ tb: $(OBJS)
 
         print(f"\n  Multi-file C project generated: {proj_dir}")
         print(f"  Build: cd {proj_dir} && make")
+
+    # ------------------------------------------------------------------
+    # Switch API auto-generation (testbench interface)
+    # ------------------------------------------------------------------
+
+    def _generate_switch_api_files(self, proj_dir: str) -> None:
+        """Generate switch_api_gen.c/.h from reg_map + trace info."""
+        import re
+        inc_dir = os.path.join(proj_dir, "include")
+        src_dir = os.path.join(proj_dir, "src")
+
+        trace_idx_names = []
+        all_trace_names = []
+        if hasattr(self, '_trace_vars') and self._trace_vars:
+            all_trace_names = list(self._trace_vars.keys()) if isinstance(self._trace_vars, dict) else self._trace_vars
+        else:
+            trace_h = os.path.join(inc_dir, "8m_trace_extern.h")
+            if os.path.exists(trace_h):
+                with open(trace_h, "r") as f:
+                    for line in f:
+                        m = re.match(r'extern uint32_t g_trace_(\w+);', line)
+                        if m:
+                            all_trace_names.append(m.group(1))
+
+        for tname in all_trace_names:
+            if any(tname.endswith(suffix) for suffix in ('Idx', 'Hash', 'SubIdx')):
+                trace_idx_names.append(tname)
+
+        extern_vars = []
+        ext_h = os.path.join(inc_dir, "8m_globals_extern.h")
+        if os.path.exists(ext_h):
+            with open(ext_h, "r") as f:
+                for line in f:
+                    m = re.match(r'extern \w+(?:_t)?\s+(\w+)\s*;', line)
+                    if m:
+                        extern_vars.append(m.group(1))
+
+        if self.reg_map is None:
+            if self.verbose:
+                print("    (skip switch_api_gen: no reg_map)")
+            return
+
+        header, source = generate_switch_api(
+            self.reg_map,
+            trace_idx_names=trace_idx_names,
+            trace_vars=all_trace_names,
+            extern_vars=extern_vars,
+        )
+
+        h_path = os.path.join(inc_dir, "switch_api_gen.h")
+        c_path = os.path.join(src_dir, "switch_api_gen.c")
+        with open(h_path, "w", encoding="utf-8") as f:
+            f.write(header)
+        with open(c_path, "w", encoding="utf-8") as f:
+            f.write(source)
+
+        if self.verbose:
+            print(f"    {h_path} ({len(header)} bytes) [auto-generated switch API]")
+            print(f"    {c_path} ({len(source)} bytes) [auto-generated switch API]")
+
+        # Also generate coverage bins
+        cov_bins = generate_coverage_bins(self.reg_map)
+        cov_path = os.path.join(inc_dir, "coverage_bins.py")
+        with open(cov_path, "w", encoding="utf-8") as f:
+            f.write(cov_bins)
+        if self.verbose:
+            print(f"    {cov_path} ({len(cov_bins)} bytes) [auto-generated coverage bins]")
 
     # ------------------------------------------------------------------
     # Trace support: export switchX internal variables

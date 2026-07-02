@@ -76,6 +76,28 @@ def gen_packets(etype: int, count: int):
 
 
 # ================================================================
+# 芯片初始化配置（模拟上电固件，纯 Python，随时可改）
+# ================================================================
+
+def init_chip_config(dut, ref):
+    """芯片上电默认配置 → 写入 DUT 和参考模型"""
+    for port in range(8):
+        dut.set_port_vid(port, 100 + port)
+        ref.ds_port[port]['portVid'] = 100 + port
+        dut.set_port_allowBrg(port, 1)
+        ref.ds_port[port]['allowBrg2Src'] = 1
+    for idx in range(16):
+        dut.set_vlan_fid(idx, 100 + idx)
+        ref.ds_vlan[idx]['fid'] = 100 + idx
+        dut.set_vlan_bmp(idx, 0xFF)
+        ref.ds_vlan[idx]['vlanBmp'] = 0xFF
+        dut.set_vlan_untag(idx, 0xFF)
+        ref.ds_vlan[idx]['untagFlag'] = 0xFF
+    for i in range(16):
+        dut.set_vidcam_vlan(i, 100 + i)
+
+
+# ================================================================
 # 主流程
 # ================================================================
 
@@ -107,9 +129,10 @@ def main():
             total_pkts += 1
 
             # ============================================================
-            # 第1步: 初始化硬件 & 参考模型（复位所有表项）
+            # 第1步: 初始化硬件 & 参考模型（复位 + 上电配置）
             # ============================================================
             dut.init(); ref._init_tables()
+            init_chip_config(dut, ref)
 
             # ============================================================
             # 第2步: 造包（gen_packets 已随机化 DMAC/SMAC/VLAN/EtherType）
@@ -241,7 +264,7 @@ def main():
     missed = []
     for cp, bins in cov.points.items():
         for bn, cnt in bins.items():
-            if cnt == 0: missed.append(f"{cp}.{bn}")
+            if cnt == 0: missed.append(bn)
     if missed:
         print(f"\n  UNCOVERED ({len(missed)}):")
         for m in missed: print(f"    - {m}")

@@ -78,17 +78,60 @@ int switch_piLrnDisable(void);   /* 学习禁用? */
 void cov_hit_branch(const char *branch_name);
 
 /* ================================================================
+ * 初始化 / 复位
+ * ================================================================ */
+void switch_reset_parser_globals(void);
+
+/* ================================================================
  * 端口配置（直接写 DsPort_mem）
  * ================================================================ */
 void switch_set_port_aft(int port, int aft);
 void switch_set_port_stp(int port, int state);
 void switch_set_port_max_mac(int port, int max);
 void switch_set_port_vid(int port, int vid);
+/* DsPort 其余字段 setter */
+void switch_set_DsPort_dot1qBasedVlan(int port, int v);
+void switch_set_DsPort_keepVlanTag(int port, int v);
+void switch_set_DsPort_allowBrg2Src(int port, int v);
+void switch_set_DsPort_lrnDisable(int port, int v);
+void switch_set_DsPort_rmaMode(int port, int v);
+void switch_set_DsPort_mirrorEn(int port, int v);
+void switch_set_DsPort_updateMacSa(int port, int v);
+void switch_set_DsPort_strictPvid(int port, int v);
+void switch_set_DsPort_prior(int port, int v);
 
 /* ================================================================
- * ACL 配置（直接写 DsAcl_mem）
+ * ACL / VLAN / 其他寄存器配置
  * ================================================================ */
 void switch_set_acl_entry(int idx, int action, int ether_type);
+void switch_set_DsAcl_vlanId(int idx, int v);
+void switch_set_DsAcl_srcMacHi(int idx, int v);
+void switch_set_DsAcl_srcMacLo(int idx, int v);
+
+void switch_set_DsVlan_fid(int idx, int v);
+void switch_set_DsVlan_vlanBmp(int idx, int v);
+void switch_set_DsVlan_untagFlag(int idx, int v);
+void switch_set_DsVlan_leakyUcast(int idx, int v);
+void switch_set_DsVlan_leakyMcast(int idx, int v);
+void switch_set_DsVlan_leakyBcast(int idx, int v);
+void switch_set_DsVlan_leakyArp(int idx, int v);
+void switch_set_DsVlan_leakyMirror(int idx, int v);
+void switch_set_DsVlan_egressFilter(int idx, int v);
+void switch_set_DsVlan_dot1qPriorEn(int idx, int v);
+void switch_set_DsVlan_mirrorEn(int idx, int v);
+void switch_set_DsVlan_prior(int idx, int v);
+
+void switch_set_VlanIdCamCtl_vlanId(int i, int vid);
+
+void switch_set_L2AgingCtl_agingEn(int v);
+void switch_set_L2AgingCtl_fastAgingAll(int v);
+void switch_set_L2LearnCtl_lruEn(int v);
+void switch_set_LoopDetectCtl_en(int v);
+void switch_set_MirrorCtl_srcMirrorPort(int v);
+void switch_set_StormCfgCtl_enable(int v);
+
+void switch_set_Ds1qPriorMap_prior(int idx, int v);
+void switch_set_DsDscpPriorMap_prior(int idx, int v);
 
 /* ================================================================
  * STP / 端口状态

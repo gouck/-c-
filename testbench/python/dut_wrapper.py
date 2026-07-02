@@ -100,6 +100,42 @@ class SwitchDUT:
         L.switch_set_acl_entry.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int]
         L.switch_set_acl_entry.restype = None
 
+        # -- 新增 setter（全部寄存器字段） --
+        _reg_setters_int = {
+            "set_DsPort_dot1qBasedVlan", "set_DsPort_keepVlanTag",
+            "set_DsPort_allowBrg2Src", "set_DsPort_lrnDisable",
+            "set_DsPort_rmaMode", "set_DsPort_mirrorEn",
+            "set_DsPort_updateMacSa", "set_DsPort_strictPvid", "set_DsPort_prior",
+            "set_DsVlan_fid", "set_DsVlan_vlanBmp", "set_DsVlan_untagFlag",
+            "set_DsVlan_leakyUcast", "set_DsVlan_leakyMcast", "set_DsVlan_leakyBcast",
+            "set_DsVlan_leakyArp", "set_DsVlan_leakyMirror",
+            "set_DsVlan_egressFilter", "set_DsVlan_dot1qPriorEn",
+            "set_DsVlan_mirrorEn", "set_DsVlan_prior",
+            "set_DsAcl_vlanId", "set_DsAcl_srcMacHi", "set_DsAcl_srcMacLo",
+            "set_Ds1qPriorMap_prior", "set_DsDscpPriorMap_prior",
+        }
+        for name in _reg_setters_int:
+            func = getattr(L, f"switch_{name}")
+            func.argtypes = [ctypes.c_int, ctypes.c_int]
+            func.restype = None
+        L.switch_set_VlanIdCamCtl_vlanId.argtypes = [ctypes.c_int, ctypes.c_int]
+        L.switch_set_VlanIdCamCtl_vlanId.restype = None
+
+        # -- 单例 setter --
+        _reg_setters_void = {
+            "set_L2AgingCtl_agingEn", "set_L2AgingCtl_fastAgingAll",
+            "set_L2LearnCtl_lruEn", "set_LoopDetectCtl_en",
+            "set_MirrorCtl_srcMirrorPort", "set_StormCfgCtl_enable",
+        }
+        for name in _reg_setters_void:
+            func = getattr(L, f"switch_{name}")
+            func.argtypes = [ctypes.c_int]
+            func.restype = None
+
+        # -- parser reset --
+        L.switch_reset_parser_globals.argtypes = []
+        L.switch_reset_parser_globals.restype = None
+
         # -- 寄存器字段 getter（全覆盖，数组型带 index 参数） --
         _reg_getters_int = {
             # DsPort_mem[port]
@@ -325,3 +361,17 @@ class SwitchDUT:
 
     def set_acl_entry(self, idx: int, action: int, ether_type: int):
         self._lib.switch_set_acl_entry(idx, action, ether_type)
+
+    def reset_parser(self):
+        """复位 parser 全局变量（消除跨包残留）"""
+        self._lib.switch_reset_parser_globals()
+
+    # -- 新增 Python setter（对应 C 侧 switch_set_xxx） --
+    def set_port_dot1q(self, port, v):   self._lib.switch_set_DsPort_dot1qBasedVlan(port, v)
+    def set_port_allowBrg(self, port, v): self._lib.switch_set_DsPort_allowBrg2Src(port, v)
+    def set_vlan_fid(self, idx, v):       self._lib.switch_set_DsVlan_fid(idx, v)
+    def set_vlan_bmp(self, idx, v):       self._lib.switch_set_DsVlan_vlanBmp(idx, v)
+    def set_vlan_untag(self, idx, v):     self._lib.switch_set_DsVlan_untagFlag(idx, v)
+    def set_vidcam_vlan(self, i, vid):    self._lib.switch_set_VlanIdCamCtl_vlanId(i, vid)
+    def set_aging_en(self, v):            self._lib.switch_set_L2AgingCtl_agingEn(v)
+    def set_fast_aging_all(self, v):      self._lib.switch_set_L2AgingCtl_fastAgingAll(v)
